@@ -1,0 +1,62 @@
+{
+  "name": "darkfactory",
+  "version": "1.0.0",
+  "description": "An autonomous software factory powered by AI agents.",
+  "type": "module",
+  "bin": {
+    "dark": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "scripts/install-hooks.mjs"
+  ],
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli/index.ts",
+    "start": "node dist/cli/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build && vitest run",
+    "test:unit": "vitest run --exclude \"test/**/*.integration.test.ts\"",
+    "test:coverage": "npm test -- --coverage",
+    "test:mutation": "stryker run",
+    "deps:check": "depcruise --config dependency-cruiser.config.mjs --output-type err-long src test",
+    "knip": "knip",
+    "commitlint": "commitlint --strict",
+    "hooks:install": "lefthook install",
+    "hooks:check": "lefthook run pre-commit --force",
+    "postinstall": "node scripts/install-hooks.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run deps:check && npm run knip && npm test",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.0.5",
+    "dependency-cruiser": "^18.7.0",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "fast-check": "^4.10.2",
+    "knip": "^6.44.1",
+    "lefthook": "^2.2.2",
+    "prettier": "~3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
+  }
+}
