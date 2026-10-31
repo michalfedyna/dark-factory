@@ -1,8 +1,4 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.ts", "test/**/*.ts", "*.mjs"],
-  "ignoreDependencies": [
-    // Clack is intentionally installed for future interactive CLI commands.
-    "@clack/prompts",
-  ],
 }

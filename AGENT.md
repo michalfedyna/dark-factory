@@ -8,6 +8,8 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 
 - Use TypeScript and Node.js.
 - Use [Mastra](https://mastra.ai/docs) for AI agents and workflows.
+- Use [Commander](https://github.com/tj/commander.js) for CLI commands, arguments, options, help, and version output.
+- Use [Clack](https://github.com/bombshell-dev/clack) for interactive prompts and progress output.
 
 ## Architecture
 

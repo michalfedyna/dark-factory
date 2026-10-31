@@ -36,7 +36,6 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@clack/prompts": "^1.8.1",
     "commander": "^15.0.0"
   },
   "devDependencies": {
