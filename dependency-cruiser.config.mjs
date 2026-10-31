@@ -32,6 +32,12 @@ export default {
       from: { path: '^src/', pathNot: '^src/cli/' },
       to: { path: '^src/cli/' },
     },
+    {
+      name: 'keep-contracts-independent',
+      severity: 'error',
+      from: { path: '^src/contracts/' },
+      to: { path: '^src/', pathNot: '^src/contracts/' },
+    },
   ],
   options: {
     tsConfig: { fileName: 'tsconfig.json' },

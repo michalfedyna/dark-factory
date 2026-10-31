@@ -164,10 +164,10 @@ permissions, isolation, validation, and delivery decisions.
   and mobile exploration and verification; browser emulation is not a substitute.
 - **[Figma REST API](https://developers.figma.com/docs/rest-api/):** captured,
   versioned design references, assets, and design-to-code traceability.
-- **[OpenUI](https://www.openui.com):** plan, progress, evidence, questions, and
-  explicit approval controls over authoritative backend state. Generated
-  explanations cannot alter approval content or authorize actions.
-- **CLI:** a thin alternative interface to the same workflow and decisions.
+- **CLI (Commander and Clack):** the only user interface for now: progress,
+  evidence, questions, and explicit decisions over authoritative factory state.
+  Generated explanations cannot alter approval content or authorize actions.
+  Web UI and OpenUI integration are out of scope.
 
 Each run uses only integrations applicable to its approved targets. A backend
 change does not need fabricated UI checks; a required unavailable target blocks

@@ -1,0 +1,15 @@
+# CLIProxyAPI v8. Copy to router.yaml (gitignored) and replace the client key.
+config-version: 8
+server:
+  host: '127.0.0.1'
+  port: 8317
+management:
+  allow-remote: false
+  secret-key: ''
+  disable-control-panel: true
+access:
+  api-keys:
+    - 'replace-with-your-local-client-key'
+# The same directory is used by --codex-login. Do not commit credentials.
+oauth:
+  auth-dir: '~/.cli-proxy-api'

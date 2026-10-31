@@ -7,3 +7,8 @@ reports/
 *.tsbuildinfo
 *.tgz
 .DS_Store
+.env
+.env.*
+!.env.example
+.darkfactory/
+config/router.yaml

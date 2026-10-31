@@ -30,6 +30,18 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Validate configuration before starting work and explain errors clearly.
 - Keep configuration explicit and easy to understand.
 
+## Interaction and Copy
+
+- The CLI is the only user interface for now. Do not add a web app, local UI server, or browser UI dependencies.
+- Use Commander for commands and Clack for interactive terminal prompts and progress.
+- Keep terminal output compact and functional. No slogans, decorative banners, filler paragraphs, or redundant status messages.
+- Do not explain obvious controls. Keep prompts and actions short and direct.
+- Send prompts, progress, and diagnostics to stderr; reserve stdout for the final validated JSON.
+- Support suggested answers and free text. Cancellation and input ending must never count as confirmation.
+- Use short, direct action labels. Show context only when it helps the user make a decision.
+- Show real content and useful state, not placeholders describing future content.
+- When in doubt, remove it. Less is better.
+
 ## Working on This Project
 
 - Use simple English in code comments, documentation, and CLI messages.
