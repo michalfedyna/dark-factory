@@ -130,17 +130,34 @@ Cancellation, timeout, input errors, and validation failures stop the run. Activ
 conversations are not durable across restarts; saved briefs remain on disk. Keep
 `.darkfactory/` private because briefs may contain sensitive information.
 
+## Mastra workflows
+
+Exploration runs as a registered Mastra workflow, not a custom session runtime.
+Its `explore-issue` step runs the agent and validates the brief; `save-brief`
+persists it using Mastra's run ID. The CLI starts and cancels native workflow runs.
+`sessionTimeoutMs` remains the configuration key for the exploration deadline.
+
+Task-specific workflow definitions live in `src/workflows/` and are registered in
+`src/factory/start.ts`. Future tasks can use different workflows rather than one
+fixed sequence. Prefer Mastra features over custom infrastructure.
+
+Future implementation and QA agents should use Mastra workspaces and sandboxes
+for repository work, commands, builds, and tests. These agents are not part of the
+current exploration-only CLI. See [architecture](docs/architecture.md) for
+environment isolation, ownership, and cleanup requirements.
+
 ## Structure
 
 ```text
 config/                 Proxy template; local config is gitignored
 src/
   agents/               Mastra agents and their instructions
+  workflows/            Task-specific Mastra workflows and typed steps
   tools/                Agent tools, starting with ask
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
   integrations/router/  Proxy process lifecycle and readiness
-  factory/              Exploration orchestration and output persistence
+  factory/              Mastra registration, CLI run lifecycle, and output persistence
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests
 docs/                   Architecture and output contract

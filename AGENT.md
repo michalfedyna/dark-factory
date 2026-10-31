@@ -11,6 +11,15 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Use [Commander](https://github.com/tj/commander.js) for CLI commands, arguments, options, help, and version output.
 - Use [Clack](https://github.com/bombshell-dev/clack) for interactive prompts and progress output.
 
+## Mastra First
+
+- Prefer functionality provided by Mastra over custom implementations. Check the current Mastra documentation before building infrastructure that the framework may already provide.
+- Use registered [Mastra workflows](https://mastra.ai/docs/workflows/overview) for task orchestration, steps, run state, and execution control. Do not build a custom Sessions class or workflow engine.
+- Define separate workflows for different tasks when their steps or control flow differ. Reuse steps or nested workflows where useful; do not force every task through one workflow.
+- Use Mastra [workspaces and sandboxes](https://mastra.ai/docs/sandbox/overview) for implementation and QA agents that need repository access, commands, dependency installation, builds, tests, or background processes. Prefer framework-provided filesystem and sandbox tools over custom equivalents.
+- Scope sandbox environments to the task or workflow run, and explicitly manage their lifecycle and cleanup. Do not share mutable environments across unrelated runs.
+- An ordinary LocalSandbox runs on the host; it is not a security boundary. Use native isolation or a remote/container sandbox for untrusted code, and restrict network access and credentials to what the task needs.
+
 ## Architecture
 
 - Keep the core small and focused.

@@ -22,7 +22,7 @@ export function createExploration(
   apiKey: string,
 ): Explore {
   return async (issue, ask, signal) => {
-    // Each session owns an agent and its tool closure: no shared conversation state.
+    // Each workflow run owns its agent and tools: no shared conversation state.
     const agent = new Agent({
       id: 'exploration',
       name: 'Issue exploration',
