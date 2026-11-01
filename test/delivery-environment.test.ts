@@ -119,9 +119,9 @@ async function setup(project = projectPlan) {
     model: factoryConfigSchema.parse({}).model,
     apiKey: 'private-key',
     runId: 'run',
-    ask: vi.fn().mockResolvedValue('Implement'),
     signal: controller.signal,
     progress: vi.fn(),
+    diagnostic: vi.fn(),
   };
   const environment = createDeliveryEnvironment(options);
   environments.push(environment);
@@ -165,7 +165,7 @@ test('partial setup failure destroys every acquired resource and never exposes a
   });
   const destroySandbox = vi.spyOn(LocalSandbox.prototype, 'destroy');
   const destroyWorkspace = vi.spyOn(Workspace.prototype, 'destroy');
-  await expect(environment.prepare(brief, options.signal, 3)).rejects.toThrow(
+  await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
     'setup failed',
   );
   expect(() => environment.requireRun()).toThrow('not been prepared');
@@ -189,12 +189,32 @@ test('closing during inspection prevents late setup from acquiring resources', a
   const { environment, options } = await setup();
   const inspection = deferred<typeof projectPlan>();
   options.inspect = () => inspection.promise;
-  const preparing = environment.prepare(brief, options.signal, 3);
+  const preparing = environment.prepare(brief, options.signal);
   const rejected = expect(preparing).rejects.toThrow('closed');
   await environment.close();
   inspection.resolve(projectPlan);
   await rejected;
   expect(createRunRepository).not.toHaveBeenCalled();
+});
+
+test('inspection blockers stop before mutable resources without asking the user', async () => {
+  const { environment, options, source } = await setup();
+  options.inspect = () =>
+    Promise.resolve({ blockers: ['Missing native app identifier.'] });
+  await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
+    'Repository inspection blocked',
+  );
+  expect(options.diagnostic).toHaveBeenCalledWith(
+    'Repository inspection blocked: Missing native app identifier.',
+  );
+  expect(options.progress).toHaveBeenCalledExactlyOnceWith(
+    'Inspecting repository',
+  );
+  expect(createRunRepository).not.toHaveBeenCalled();
+  expect(sandboxInstances).toHaveLength(0);
+  await expect(
+    readFile(join(source, '.darkfactory/runs/run/input.json')),
+  ).rejects.toThrow();
 });
 
 test('cancellation during dependency setup cannot expose a late ready environment', async () => {
@@ -208,7 +228,7 @@ test('cancellation during dependency setup cannot expose a late ready environmen
     started.resolve();
     return command.promise;
   });
-  const preparing = environment.prepare(brief, options.signal, 3);
+  const preparing = environment.prepare(brief, options.signal);
   const rejected = expect(preparing).rejects.toThrow('Cancelled');
   await started.promise;
   controller.abort(new Error('Cancelled'));
@@ -220,7 +240,7 @@ test('cancellation during dependency setup cannot expose a late ready environmen
 
 test('round resources cannot be reused for another revision or repair round', async () => {
   const { environment, options } = await setup();
-  await environment.prepare(brief, options.signal, 3);
+  await environment.prepare(brief, options.signal);
   expect(() => environment.requireRound(candidate())).toThrow(
     'Run checks first',
   );
@@ -245,7 +265,7 @@ test('QA failure closes automation with a fresh signal and stops servers exactly
     ...projectPlan,
     targets: [webTarget, { ...webTarget, id: 'second' }],
   });
-  await environment.prepare(brief, options.signal, 3);
+  await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
   const session = environment.beginRound(candidate()).qaSession;
   const server = new QaServer();
@@ -282,7 +302,7 @@ test('a server returned after session closure is killed and cannot continue QA',
     ...projectPlan,
     targets: [webTarget],
   });
-  await environment.prepare(brief, options.signal, 3);
+  await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
   const session = environment.beginRound(candidate()).qaSession;
   const spawning = deferred<ProcessHandle>();
@@ -308,7 +328,7 @@ test('QA cleanup failure still attempts every acquired environment resource', as
     ...projectPlan,
     targets: [webTarget],
   });
-  await environment.prepare(brief, options.signal, 3);
+  await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
   const session = environment.beginRound(candidate()).qaSession;
   vi.spyOn(run.projectSandbox.processes, 'spawn').mockRejectedValue(

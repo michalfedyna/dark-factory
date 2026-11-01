@@ -16,6 +16,7 @@ import { uiProjectPlan } from './fixtures/delivery.js';
 import {
   createTestRepository,
   installQaAutomation,
+  installPublicationAutomation,
   startCompiledFactory,
 } from './fixtures/integration.js';
 
@@ -53,6 +54,7 @@ test.each([
       await mkdir(join(source, 'nested'));
       await writeFile(join(source, 'original.txt'), 'user work');
       const bin = await installQaAutomation(directory);
+      await installPublicationAutomation(directory, bin, base);
       const plan = structuredClone(uiProjectPlan);
       if (mode === 'delivery-check-repair')
         plan.checks[0]!.args = [
@@ -74,12 +76,16 @@ test.each([
         path: `${bin}:${process.env.PATH ?? ''}`,
         timeoutMs: 20_000,
       });
-      run.child.stdin.end('CSV\nImplement\nKeep local\n');
+      run.child.stdin.end('CSV\nStart\n');
       expect(await run.exit, run.stderr()).toEqual([0, null]);
       const result = deliveryResultSchema.parse(JSON.parse(run.stdout()));
-      expect(result.status).toBe('ready');
+      expect(result.status).toBe('published');
       expect(result.rounds).toBe(rounds);
-      expect(result.pullRequestUrl).toBeNull();
+      expect(result.pullRequestUrl).toBe(
+        'https://github.com/example/project/pull/12',
+      );
+      expect(run.stderr()).not.toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain('Push this candidate');
       const contexts = (
         await readFile(join(directory, 'agent-contexts.jsonl'), 'utf8')
       )
@@ -90,6 +96,7 @@ test.each([
             JSON.parse(line) as {
               role: string;
               payload?: Record<string, unknown>;
+              tools: string[];
             },
         );
       const expectedFields: Record<string, string[]> = {
@@ -120,7 +127,12 @@ test.each([
           expect(Object.keys(request.payload ?? {}).sort()).toEqual(
             [...fields].sort(),
           );
+        for (const request of requests)
+          expect(request.tools).not.toContain('ask');
       }
+      expect(
+        contexts.find((context) => context.role === 'exploration')?.tools,
+      ).toContain('ask');
       const implementations = contexts.filter(
         (context) => context.role === 'implementation',
       );
@@ -190,9 +202,27 @@ test.each([
       expect(
         (JSON.parse(persisted) as { history: unknown[] }).history,
       ).toHaveLength(rounds);
-      await expect(
-        readFile(join(result.runDirectory, 'publication.json')),
-      ).rejects.toThrow();
+      const publication: unknown = JSON.parse(
+        await readFile(join(result.runDirectory, 'publication.json'), 'utf8'),
+      );
+      expect(publication).toMatchObject({
+        status: 'published',
+        url: result.pullRequestUrl,
+      });
+      const calls = (
+        await readFile(join(directory, 'publication-calls.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { command: string; args: string[] });
+      expect(
+        calls.filter(
+          (call) => call.command === 'git' && call.args.includes('push'),
+        ),
+      ).toHaveLength(1);
+      expect(
+        calls.filter((call) => call.command === 'gh' && call.args[0] === 'pr'),
+      ).toHaveLength(1);
       expect(run.stdout()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('test-key');
       await run.assertStopped();

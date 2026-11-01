@@ -49,6 +49,7 @@ export async function startFactory(
         ask: Ask,
         progress: (message: string) => void,
         summary: (message: string) => void = progress,
+        diagnostic: (message: string) => void = progress,
       ) => {
         let observer: ReturnType<typeof createProgressObserver> | undefined;
         const observe: Observe = (activity) => observer?.observe(activity);
@@ -88,15 +89,14 @@ export async function startFactory(
                   config.model,
                   apiKey,
                   repository,
-                  observedAsk,
                   observe,
                 ),
                 model: config.model,
                 apiKey,
                 runId,
-                ask: observedAsk,
                 signal,
                 progress: report,
+                diagnostic,
                 observe,
               });
             },

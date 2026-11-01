@@ -2,7 +2,10 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { projectPlanSchema } from '../src/contracts/project.js';
+import {
+  projectInspectionSchema,
+  projectPlanSchema,
+} from '../src/contracts/project.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import { inspectRepository } from '../src/integrations/git/inspect.js';
 import { projectPlan } from './fixtures/delivery.js';
@@ -66,6 +69,29 @@ test.each([
     });
   },
 );
+
+test('inspection returns either an executable plan or explicit blockers', () => {
+  const plan = projectPlanSchema.parse({
+    allowedPaths: projectPlan.allowedPaths,
+    checks: projectPlan.checks,
+  });
+  expect(
+    projectInspectionSchema.safeParse({ plan, blockers: [] }).success,
+  ).toBe(true);
+  expect(
+    projectInspectionSchema.safeParse({
+      plan: null,
+      blockers: ['Missing app identifier.'],
+    }).success,
+  ).toBe(true);
+  for (const result of [
+    { plan: null, blockers: [] },
+    { plan, blockers: ['Missing app identifier.'] },
+    { plan: null, blockers: [' '] },
+    { plan: { ...plan, checks: [] }, blockers: [] },
+  ])
+    expect(projectInspectionSchema.safeParse(result).success).toBe(false);
+});
 
 test('does not invent a publication target for a repository without a remote', async () => {
   const { repository } = await setup();

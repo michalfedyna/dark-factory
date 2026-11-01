@@ -1,7 +1,7 @@
 # DarkFactory
 
 A CLI software factory. The `default` workflow takes an issue through exploration,
-implementation, web/native QA, independent review, and an approved draft GitHub PR.
+implementation, web/native QA, independent review, and automatic draft GitHub PR publication.
 
 The CLI is the only interface. There is no web app or local UI server.
 
@@ -87,14 +87,14 @@ npm run dev -- start --issue "Export filtered issues as CSV"
 ```
 
 One invocation runs one issue from exploration to delivery. The factory validates
-the brief in memory, inspects the current repository, and infers setup commands,
-checks, change scope, and QA targets from its files. Necessary unknowns become
-terminal questions, not guessed defaults. The implementation approval shows the
-plan in the same cyan accent block as Observer updates, preserving its multiline
-details. `NO_COLOR` keeps the layout without color; redirected stderr stays plain.
-After implementation approval it implements, checks, tests, reviews, and prepares
-a draft PR. Publication needs a separate approval; **Keep local** retains a
-verified candidate without pushing.
+the brief in memory. Confirming the issue plan during exploration is the last
+user interaction: the factory then inspects the repository, infers setup commands,
+checks, change scope, and QA targets, implements, verifies, repairs in scope, and
+publishes a draft PR automatically. Only the exploration agent has `ask`;
+later agents cannot prompt or request approval. Necessary facts that cannot be
+established from the repository stop the run with a blocker, not a guessed default.
+Confirmation also authorizes publication of verification screenshots and a small
+manifest. Use trusted repositories, test accounts, and disposable data.
 Stdout contains only the final delivery result JSON, not the intermediate brief.
 Prompts, progress, diagnostics, and artifact paths go to stderr. The managed proxy
 stops when the run ends, including cancellation, crashes, and forced factory termination.
@@ -120,7 +120,8 @@ When stdin is not a terminal, input is line-oriented. The first line is the issu
 unless `--issue` is supplied; each later line answers the next agent question.
 You can enter a displayed choice number (starting at 1) or free text. Input is
 buffered between model calls. Empty lines are rejected; EOF fails the run rather
-than fabricating an answer or approving a brief, implementation, or publication.
+than fabricating an answer or confirming a plan. Once the plan is confirmed,
+stdin can close; no more input is needed.
 Model questions can vary, so do not assume a fixed answer script is suitable for
 every real issue.
 
@@ -136,13 +137,13 @@ single unambiguous GitHub remote when origin is absent. Without a usable GitHub
 remote, verified work stays local.
 
 The inspection agent reads manifests, lockfiles, CI, instructions, and source with
-a read-only Mastra filesystem. It proposes actual repository commands and targets
-for approval; it cannot execute code or change files. No delivery config is needed.
+a read-only Mastra filesystem. It infers actual repository commands and targets
+without asking the user; it cannot execute code or change files. No delivery config is needed.
 QA uses **agent-browser** for web and **agent-device** for native iOS/Android.
 QA/review findings can return to implementation within a shared repair budget;
-new candidates always get fresh verification. Implementation and GitHub publication
-require separate explicit terminal approvals. Choose **Keep local** to stop before
-push/PR creation. Stdout is one final result JSON. Evidence and retained checkouts
+new candidates always get fresh verification. Exploration confirmation authorizes
+the in-scope run through draft PR publication; there are no later user approval prompts.
+Without a usable GitHub remote, verified work remains local. Stdout is one final result JSON. Evidence and retained checkouts
 live under the target repository's `.darkfactory/runs/<run-id>/`; there is no
 separate issue-file output or save step. One timeout covers the entire workflow,
 and checks, QA, and review share a fixed three-repair budget.
@@ -176,7 +177,7 @@ passed directly, without a shell.
 | `router.command`        | `cliproxyapi`                       | Proxy executable.                                                        |
 | `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                         |
 | `router.readyTimeoutMs` | `20000`                             | Proxy/model startup deadline.                                            |
-| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including approvals and repairs (30 minutes).   |
+| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including exploration and repairs (30 minutes). |
 
 For an existing/remote endpoint, set `router.managed: false` and configure the
 model URL, protocol, and key. Managed URLs must be loopback addresses. The factory
@@ -216,7 +217,7 @@ updates on stderr. It runs alongside the workflow, not as a blocking step.
 In a terminal, updates appear as compact accent blocks with a bold cyan heading
 and a cyan left border, wrapped to the terminal width. `NO_COLOR` disables color;
 redirected stderr keeps plain `Observer: ...` lines. Updates add no surrounding blank lines.
-Updates pause during terminal questions and approvals; stale results from a
+Updates pause during exploration questions and confirmation; stale results from a
 previous stage or prompt are discarded. Final stdout JSON is unchanged.
 
 The observer receives only the latest 40 metadata events, the current stage, and
@@ -265,7 +266,7 @@ information.
 directly to preparation. The CLI starts and cancels one native workflow run.
 
 Delivery uses a nested Mastra repair loop, not a second top-level run.
-`sessionTimeoutMs` bounds the whole run, including both approval waits. Implementation uses a
+`sessionTimeoutMs` bounds the whole run, including exploration confirmation. Implementation uses a
 per-run workspace and sandbox; QA/review get read-only source access, and trusted
 runners capture revision-bound evidence. See
 [architecture](docs/architecture.md) and [delivery](docs/delivery.md).

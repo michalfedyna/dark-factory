@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   chmod,
@@ -39,6 +39,23 @@ export async function installQaAutomation(directory: string) {
   await symlink(automation, join(bin, 'agent-browser'));
   await symlink(automation, join(bin, 'agent-device'));
   return bin;
+}
+
+export async function installPublicationAutomation(
+  directory: string,
+  bin: string,
+  base: string,
+) {
+  const git = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  await writeFile(
+    join(directory, 'publication-fixture.json'),
+    JSON.stringify({ git, base }),
+  );
+  const publication = join(directory, 'publication.mjs');
+  await copyFile(new URL('./publication.mjs', import.meta.url), publication);
+  await chmod(publication, 0o700);
+  await symlink(publication, join(bin, 'git'));
+  await symlink(publication, join(bin, 'gh'));
 }
 
 export async function createTestRepository(

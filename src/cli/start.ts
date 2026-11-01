@@ -1,6 +1,7 @@
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import * as prompts from '@clack/prompts';
 import { loadConfig } from '../config/load.js';
 import { issueInputSchema } from '../contracts/interaction.js';
@@ -94,6 +95,13 @@ export async function startCommand(options: {
         progress.clear();
         writeObserver(message, output);
         progress.start(stage);
+      },
+      (message) => {
+        progress.clear();
+        prompts.log.error(stripVTControlCharacters(message), {
+          output,
+          withGuide: false,
+        });
       },
     );
     progress.close();

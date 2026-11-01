@@ -17,7 +17,7 @@ import type {
 } from './context.js';
 import { createEvidence } from './evidence.js';
 import { createQaSession } from './qa-session.js';
-import { approveProject } from './preparation.js';
+import { prepareProject } from './preparation.js';
 
 /** Owns live resources, including resources acquired before setup completes. */
 export function createDeliveryEnvironment(options: DeliveryOptions) {
@@ -66,11 +66,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       };
       return round;
     },
-    prepare: async (
-      brief: IssueBrief,
-      requestedSignal: AbortSignal,
-      maxRepairRounds: number,
-    ) => {
+    prepare: async (brief: IssueBrief, requestedSignal: AbortSignal) => {
       if (preparing || run)
         throw new Error('Delivery environment can only be prepared once.');
       preparing = true;
@@ -80,11 +76,10 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         lifetime.signal,
       ]);
       signal.throwIfAborted();
-      const { project, base, isolation } = await approveProject(
+      const { project, base, isolation } = await prepareProject(
         options,
         brief,
         signal,
-        maxRepairRounds,
       );
       signal.throwIfAborted();
       const source = project.repository;
@@ -102,7 +97,6 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         config: project,
         model: options.model,
         baseRevision: base,
-        implementationApproved: true,
       });
       signal.throwIfAborted();
       const repository = await createRunRepository(

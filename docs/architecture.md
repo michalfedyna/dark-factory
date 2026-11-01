@@ -60,11 +60,14 @@ CLIProxyAPI remains the model transport; it is not a user interface.
    It stays in memory; there is no issue-file writer or separate save step.
 7. Require a confirmed, ready brief. A read-only inspection agent infers change
    scope, setup commands, checks, network needs, and web/native targets from the
-   repository. It asks about necessary unknowns and cannot execute project code.
-   Require separate approval of the brief and inferred plan before preparing the
-   run-owned repository. Run implementation, checks, QA, and review
-   in a bounded repair cycle. Only passing candidates reach summary and publication
-   approval. **Keep local** returns a verified candidate without pushing.
+   repository. It has no `ask` tool and cannot execute project code. Necessary
+   unknowns become explicit blockers, not prompts. The exploration confirmation
+   authorizes the full in-scope run; delivery has no interaction callback.
+   Prepare the run-owned repository and run implementation, checks, QA, and review
+   in a bounded repair cycle. Only passing candidates reach summary and automatic
+   draft PR publication. Without a usable GitHub remote, verified work stays local.
+   Inspection blockers use a separate diagnostic callback so they remain visible
+   after the progress spinner clears and do not enter Observer activity metadata.
 8. Print only the final validated delivery JSON to stdout. Its run ID also names
    the artifact directory at `<git-root>/.darkfactory/runs/<run-id>/`.
 9. Close terminal input, shut down Mastra, and stop the owned proxy after
@@ -123,7 +126,7 @@ answers, or credentials enter the observer prompt.
 
 Each invocation owns its observer and ties it to the whole-workflow signal.
 `factory/start.ts` pauses it around every
-question and approval, discards stale-stage/prompt results, and aborts it in
+exploration question and confirmation, discards stale-stage/prompt results, and aborts it in
 `finally` without delaying workflow completion. Failures disable summaries only;
 normal progress continues. The CLI renders summaries on stderr through Clack
 without mixing them into stdout JSON or a pending prompt. Observations are not
@@ -137,9 +140,9 @@ late updates cannot restart the animation.
 
 `cli/observer.ts` owns summary sanitization and plain `Observer: ...` output.
 It shares `cli/accent-block.ts` with titled question context in `cli/terminal.ts`:
-terminal-width accent blocks in a TTY, respecting `NO_COLOR`. The implementation
-approval supplies an explicit `contextTitle` of `Implementation plan`; its full
-multiline context is preserved. Untitled questions and redirected context remain
+terminal-width accent blocks in a TTY, respecting `NO_COLOR`. Exploration questions
+can supply a `contextTitle` for readable brief confirmation; full multiline
+context is preserved. Untitled questions and redirected context remain
 plain text.
 
 ## Cancellation and failures
@@ -156,7 +159,7 @@ Workflow steps are not retried automatically: repeating terminal questions or
 file writes would be unsafe. Automatic run recovery is disabled for `default`
 because terminal callbacks do not survive process restarts. No workflow snapshot
 storage is configured yet. `sessionTimeoutMs` bounds the entire workflow, including
-exploration, inspection, approvals, implementation, repairs, and publication.
+exploration, inspection, confirmation, implementation, repairs, and publication.
 
 Ctrl+C/Escape and termination signals cancel with exit code 130. Startup failures,
 EOF, model/schema failures, persistence failures, and timeouts exit with code 1.
@@ -196,7 +199,7 @@ without encrypted content is omitted. Chat uses no Responses-specific options.
 The delivery phase of `default` uses a native nested
 `.dountil()` cycle that runs implementation, deterministic checks, QA, independent
 review, and the controller's gate. Findings return to implementation within one
-shared repair budget. Summary and explicitly approved draft-PR publication happen
+shared repair budget. Summary and automatic draft-PR publication happen
 only after passing gates. See [delivery](delivery.md) for discovery and the
 initial provider's limits.
 
@@ -230,18 +233,18 @@ a custom command execution layer. See the
 
 ### Delivery code map
 
-| Module                                  | Responsibility                                                                                                    |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `delivery/preparation.ts`               | Validate the inferred project plan, recheck the pinned base, require isolation and exact implementation approval. |
-| `delivery/environment.ts`               | Acquire resources, expose a prepared run/current round, and clean up even after partial setup.                    |
-| `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                  |
-| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                  |
-| `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                     |
-| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                                 |
-| `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                       |
-| `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.       |
-| `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                               |
-| `delivery/finish.ts`, `pull-request.ts` | Local preview/result, publication approval, and PR sections. GitHub side effects stay in its adapter.             |
+| Module                                  | Responsibility                                                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `delivery/preparation.ts`               | Require a confirmed brief, report inspection blockers, validate the inferred plan, recheck the pinned base, and require isolation. |
+| `delivery/environment.ts`               | Acquire resources, expose a prepared run/current round, and clean up even after partial setup.                                     |
+| `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                                   |
+| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                                   |
+| `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                                      |
+| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                                                  |
+| `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                                        |
+| `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.                        |
+| `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                                                |
+| `delivery/finish.ts`, `pull-request.ts` | Local preview/result, automatic gated publication, and PR sections. GitHub side effects stay in its adapter.                       |
 
 Factory configuration (`FactoryConfig`) controls model transport, observation,
 router lifecycle, and the whole-run deadline. The inspected project plan (`Project`)
@@ -251,7 +254,7 @@ plan under its existing `config` key.
 
 ### Resource and state ownership
 
-- A run context is available only after inspection, approval, resource setup, and
+- A run context is available only after exploration confirmation, inspection, resource setup, and
   dependencies succeed. Operations fail explicitly if preparation is incomplete.
 - Resources are registered as soon as acquired. A static workspace owns its
   sandbox once construction succeeds; until then the environment retains cleanup
@@ -279,8 +282,9 @@ Agents validate their structured results; workflow steps independently parse the
 again. QA/review policies validate criterion and evidence references. Trusted Git
 checks enforce approved paths and candidate immutability. Publication independently
 requires passing gates, a summary, an unchanged candidate, a matching GitHub base,
-and a metadata-only evidence commit. Approval labels, schemas, private file formats,
-repair budget, deadlines, and uncertain-publication journaling are unchanged.
+and a metadata-only evidence commit. Repository inspection returns either a
+complete plan or explicit blockers. There are no post-exploration approvals;
+repair budgets, deadlines, and uncertain-publication journaling still apply.
 
 Tests separate pure state/policy and lifecycle regressions from real Mastra/CLI
 integration scenarios. `test/fixtures/integration.ts` owns common repository and
@@ -303,7 +307,7 @@ commits and authorized publication. The source checkout is cloned at a pinned
 local base, and its Git control files live outside the agent filesystem. Native
 isolation is required for project commands but isn't a complete host boundary;
 browser/device CLIs run on the trusted local host. No factory API-key environment
-is passed to project commands. Local provider limits are explicit in the approval
+is passed to project commands. Local provider limits are explicit in exploration confirmation
 and documented; use remote/container isolation before supporting hostile code.
 
 Native workflow sequencing and budgets are not a custom session engine. Run

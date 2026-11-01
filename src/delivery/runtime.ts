@@ -12,8 +12,7 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
   const agents = createDeliveryAgents(options);
   const operations: DeliveryOperations = {
     maxRepairRounds: 3,
-    prepare: (brief, signal) =>
-      environment.prepare(brief, signal, operations.maxRepairRounds),
+    prepare: environment.prepare,
     implement: (state, signal) =>
       agents.implement(environment.requireRun(), state, signal),
     capture: (signal) => environment.requireRun().repository.capture(signal),

@@ -1,11 +1,11 @@
 # Default end-to-end workflow
 
 ```text
-explore → confirm brief → inspect repository → approve implementation
+explore → confirm issue plan → inspect repository
   → implement → snapshot → inferred checks → QA → independent review
       ↑                                      │             │
       └──────── bounded in-scope repairs ──────┴─────────────┘
-  → summary → approve publication → push branch → draft GitHub PR
+  → summary → push branch → draft GitHub PR
 ```
 
 `dark start` runs the single registered Mastra workflow named `default`, from
@@ -42,12 +42,12 @@ The config path selects transport settings, not the target repository. `.env` an
 router arguments still resolve alongside that config. There is no `delivery`
 section, project-path option, or separate delivery config file.
 
-The **Implement** decision authorizes the displayed brief, pinned base, inferred
-source scope, commands, targets, and repair budget. Any other answer stops before
-repository preparation. Later, **Publish** authorizes the displayed summary,
-candidate, branch, verification manifest, and captured screenshots. **Keep local**
-returns `ready` without Git push or GitHub operations. EOF/cancellation never
-approves either action.
+The final exploration confirmation authorizes the issue plan and an automatic
+in-scope run through verification, bounded repairs, and draft PR publication,
+including captured screenshots and the verification manifest. There is no
+implementation or publication prompt. Only exploration has the `ask` tool;
+delivery has no user interaction callback. EOF/cancellation never confirms a
+plan. After confirmation, closed stdin does not interrupt autonomous work.
 
 ## Repository discovery
 
@@ -67,10 +67,10 @@ lockfiles, CI definitions, and relevant source to infer:
 - Web servers/URLs or native app identifiers and build/install commands.
 - Whether setup or verification requires network access.
 
-The plan is validated by [`src/contracts/project.ts`](../src/contracts/project.ts)
-and displayed with the implementation approval. No project code runs during
-inspection. Necessary unknowns become questions; the agent must not invent
-commands or skip required UI verification. It may read working-tree documentation,
+The internal execution plan is validated by [`src/contracts/project.ts`](../src/contracts/project.ts)
+and used automatically. No project code runs during inspection. Necessary facts
+that the repository cannot establish become blockers, never user questions;
+the agent must not invent commands or skip required UI verification. It may read working-tree documentation,
 but implementation always starts at the pinned committed base.
 
 Web QA uses `agent-browser` from PATH; native iOS/Android QA uses `agent-device`.
@@ -82,7 +82,7 @@ disabling isolation or substituting an unrelated app/server. Cross-domain web
 login journeys are not supported yet.
 
 The workflow has one `sessionTimeoutMs` deadline, including exploration, questions,
-approvals, repairs, and publication. The fixed repair budget allows the initial
+confirmation, repairs, and publication. The fixed repair budget allows the initial
 implementation plus at most three repairs, shared by checks, QA, and review.
 Commands default to a two-minute deadline and execute through Mastra sandboxes.
 No factory API key or GitHub credential environment is passed to project commands.
@@ -111,12 +111,12 @@ No factory API key or GitHub credential environment is passed to project command
   repaired candidate. Scope changes, questions, implementation blockers, missing
   infrastructure, exhausted budgets, or repeated source trees stop automation.
 - Agent-authored acceptance assessments and code reviews are still judgments,
-  not mathematical proof. Review the inferred checks before approval; the summary
+  not mathematical proof. Inspect retained verification artifacts when reviewing the PR; the summary
   is not a gate and cannot override failed verification.
 
 ## Publication and artifacts
 
-After implementation approval, the workflow creates its private run directory at
+After exploration confirmation and repository inspection, the workflow creates its private run directory at
 `<git-root>/.darkfactory/runs/<run-id>/`. No separate issue files are created.
 Run directories retain `input.json`, `state.json`, round command records, PNG
 screenshots, a PR preview, the isolated checkout, and `result.json`. They are
@@ -125,15 +125,15 @@ Sandboxes/background processes and run-owned browser/device sessions are stopped
 on completion, failure, timeout, or cancellation. Checkouts are retained for
 inspection, not automatically deleted.
 
-After publication approval, the trusted publisher adds selected successful-round
+After passing verification gates, the trusted publisher automatically adds selected successful-round
 screenshots and a small verification manifest in `.darkfactory/evidence/<run-id>/`.
 It makes a metadata-only commit, verifies that project source still matches the
 tested candidate, pushes `darkfactory/<run-id>` without force, and creates a
 **draft** PR. The summary identifies the tested code commit separately from the
 evidence commit. Images link to immutable GitHub commit URLs; private repository
 access is still required. Full private logs and QA/review narrative are not
-uploaded. Screenshots may contain sensitive information: inspect them before
-choosing Publish. This is not a secret scanning service.
+uploaded. Screenshots are published without a later confirmation and may contain
+sensitive information: use test accounts and disposable data. This is not a secret scanning service.
 
 `publication.json` records the branch and publication state before external
 effects. A failed/ambiguous push or GitHub response is marked `uncertain` and is
@@ -148,7 +148,8 @@ target architecture. There is no separate architecture/plan-review agent, task
 graph/parallel implementation, durable workflow resume, automatic PR-feedback
 monitoring, Figma integration, CI polling, or remote/container sandbox provider.
 Saved state is diagnostic evidence, not a restart API; a new invocation is a new
-run and requires fresh approvals. There is no unattended publication flag.
+run and requires fresh exploration confirmation. Hands-off delivery is the default,
+not an opt-in publication flag.
 
 LocalSandbox/native isolation is **not a safe boundary for hostile repositories**.
 In particular, Seatbelt permits broad host reads, and local browser/device CLIs

@@ -37,7 +37,9 @@ visible even in a confirmed brief.
 
 The `default` workflow passes the brief in memory from exploration to preparation,
 just like other step outputs. There is no separate issue JSON file or save step.
-After implementation approval, the run's private input/state artifacts include the
+Exploration confirmation is the last interaction and authorizes automatic delivery
+through a verified draft PR. Only exploration agents can ask questions. After
+repository inspection, the run's private input/state artifacts include the
 brief alongside the inferred project plan and verification state. Stdout is
 reserved for the final validated workflow result; prompts and progress go to
 stderr. Active conversations are not saved for resume.

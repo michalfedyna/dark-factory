@@ -250,6 +250,24 @@ test('failed gates cannot call push or GitHub even when invoked directly', async
       ),
   ).toBe(false);
 });
+test('publication cannot bypass exploration confirmation even with passing gates', async () => {
+  const options = await setup();
+  options.state.brief = {
+    ...brief,
+    readiness: 'needs-clarification',
+    confirmedByUser: false,
+  };
+  await expect(publishPullRequest(options)).rejects.toThrow(
+    'confirmed, ready brief',
+  );
+  expect(
+    vi
+      .mocked(hostCommand)
+      .mock.calls.some(
+        ([command, args]) => command === 'gh' || args.includes('push'),
+      ),
+  ).toBe(false);
+});
 test('an uncertain GitHub response is journaled and is never automatically retried', async () => {
   const options = await setup();
   external.fail = true;

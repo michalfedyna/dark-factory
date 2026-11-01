@@ -3,19 +3,26 @@ import { z } from 'zod';
 import type { IssueBrief } from '../contracts/issue.js';
 import { projectSchema } from '../contracts/project.js';
 import { readBase } from '../integrations/git/repository.js';
-import { approve } from './approval.js';
 import type { DeliveryOptions } from './context.js';
 
-/** Validate inspection and obtain approval before acquiring mutable resources. */
-export async function approveProject(
+/** Validate inspection before acquiring mutable resources. */
+export async function prepareProject(
   options: DeliveryOptions,
   brief: IssueBrief,
   signal: AbortSignal,
-  maxRepairRounds: number,
 ) {
+  if (brief.readiness !== 'ready' || !brief.confirmedByUser)
+    throw new Error('Delivery requires a confirmed, ready brief.');
   options.progress('Inspecting repository');
-  const project = projectSchema.parse(await options.inspect(brief, signal));
+  const inspection = await options.inspect(brief, signal);
   signal.throwIfAborted();
+  if ('blockers' in inspection) {
+    (options.diagnostic ?? options.progress)(
+      `Repository inspection blocked: ${inspection.blockers.join(' ')}`,
+    );
+    throw new Error('Repository inspection blocked.');
+  }
+  const project = projectSchema.parse(inspection);
   const base = await readBase(project.repository, project.baseBranch, signal);
   if (base !== project.baseRevision)
     throw new Error(
@@ -32,28 +39,5 @@ export async function approveProject(
       'Native sandbox isolation is unavailable. Install Seatbelt or Bubblewrap before running project commands.',
     );
   const isolation = detection.backend;
-  const accepted = await approve(
-    options.ask,
-    'Implement this brief?',
-    JSON.stringify(
-      {
-        brief,
-        repository: project.repository,
-        baseRevision: base,
-        project,
-        isolation,
-        maxRepairRounds,
-        warning:
-          'Project commands and browser/device automation run on this host. Use only trusted repositories and test accounts. Local sandboxing is not a complete security boundary. Your original checkout is not edited. Publication requires a separate approval.',
-      },
-      null,
-      2,
-    ),
-    'Implement',
-    'Stop',
-    signal,
-    'Implementation plan',
-  );
-  if (!accepted) throw new Error('Implementation was not approved.');
   return { project, base, isolation };
 }

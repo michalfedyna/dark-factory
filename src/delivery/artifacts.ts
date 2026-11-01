@@ -37,7 +37,6 @@ export function createRunArtifacts(directory: string) {
       config: Project;
       model: FactoryConfig['model'];
       baseRevision: string;
-      implementationApproved: true;
     }) => json('input.json', input, true),
     setup: (index: number, result: CommandResult) =>
       json(`setup-${index}.json`, result),

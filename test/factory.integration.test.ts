@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { projectPlan } from './fixtures/delivery.js';
+import { deliveryResultSchema } from '../src/contracts/delivery.js';
 import {
   createTestRepository,
   startCompiledFactory,
@@ -61,14 +62,16 @@ test.each(['chat', 'responses'])(
         setTimeout(resolve, 1_100);
       });
       expect(run.stderr()).toBe(beforeAnswer);
-      run.child.stdin.end('CSV\nStop\n');
-      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain(
         'Observer: Clarification received; the brief is being prepared.',
       );
-      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain('Implement this brief?');
       expect(run.stderr()).not.toContain('test-key');
-      expect(run.stdout()).toBe('');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
       await run.assertStopped();
     } finally {
       await run.clean();
@@ -87,15 +90,17 @@ test.each([true, false])(
       enabled,
     );
     try {
-      run.child.stdin.end('CSV\nStop\n');
-      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain('Which export format?');
-      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain('Implement this brief?');
       expect(run.stderr().includes('Progress summaries unavailable')).toBe(
         enabled,
       );
       expect(run.stderr()).not.toContain('test-key');
-      expect(run.stdout()).toBe('');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
       await run.assertStopped();
     } finally {
       await run.clean();
@@ -105,7 +110,7 @@ test.each([true, false])(
 );
 
 test.each(['chat', 'responses'])(
-  'compiled default flow inspects the current repository but makes no changes when implementation is declined (%s API)',
+  'EOF at plan confirmation cannot authorize repository preparation (%s API)',
   async (api) => {
     const run = await factory(
       api,
@@ -113,14 +118,13 @@ test.each(['chat', 'responses'])(
     );
     try {
       run.child.stdin.end(
-        api === 'chat' ? 'CSV\nStop\n' : 'Export filtered issues\n1\nStop\n',
+        api === 'chat' ? 'CSV\n' : 'Export filtered issues\n1\n',
       );
       expect(await run.exit, run.stderr()).toEqual([1, null]);
       expect(run.stdout()).toBe('');
       expect(run.stderr()).toContain('Which export format?');
-      expect(run.stderr()).toContain('Inspecting repository');
-      expect(run.stderr()).toContain('Implementation plan\n{\n');
-      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr()).toContain('Start implementation?');
+      expect(run.stderr()).not.toContain('Inspecting repository');
       await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
       expect(run.stdout()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('test-key');
@@ -137,13 +141,15 @@ test.each(['normal', 'no-encrypted-reasoning'])(
   async (mode) => {
     const run = await factory('responses', 'Export issues', mode, false);
     try {
-      run.child.stdin.end('CSV\nStop\n');
-      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain('Which export format?');
-      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain('Implement this brief?');
       expect(run.stderr()).not.toContain('Offline reasoning summary.');
       expect(run.stderr()).not.toContain('encrypted-test-');
-      expect(run.stdout()).toBe('');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
       await run.assertStopped();
     } finally {
       await run.clean();
@@ -165,6 +171,28 @@ test('EOF fails without inventing an answer or preparing a repository', async ()
     await run.clean();
   }
 }, 20_000);
+
+test.each(['chat', 'responses'])(
+  'inspection reports a blocker without prompting after plan confirmation (%s)',
+  async (api) => {
+    const run = await factory(api, 'Export issues', 'inspection-blocked');
+    try {
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      expect(run.stderr()).toContain(
+        'Repository inspection blocked: Missing native app identifier.',
+      );
+      expect(run.stderr()).not.toContain('Input ended');
+      expect(run.stderr()).not.toContain('Implement this brief?');
+      expect(run.stdout()).toBe('');
+      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
 
 test('unexpected router exit aborts a pending issue prompt', async () => {
   const run = await factory('responses', undefined, 'exit-after-models');
@@ -208,9 +236,10 @@ test.each(['issue', 'exploration', 'implementation'])(
     const run = await factory(
       'responses',
       stage === 'issue' ? undefined : 'Export issues',
+      stage === 'implementation' ? 'slow-implementation' : 'normal',
     );
     try {
-      if (stage === 'implementation') run.child.stdin.write('CSV\n');
+      if (stage === 'implementation') run.child.stdin.write('CSV\nStart\n');
       await vi.waitFor(
         () => {
           expect(run.stderr()).toContain(
@@ -218,7 +247,7 @@ test.each(['issue', 'exploration', 'implementation'])(
               ? 'Issue\n'
               : stage === 'exploration'
                 ? 'Which export format?'
-                : 'Implement this brief?',
+                : 'Implementing',
           );
         },
         { timeout: 10_000 },
@@ -226,7 +255,10 @@ test.each(['issue', 'exploration', 'implementation'])(
       run.child.kill('SIGINT');
       expect(await run.exit, run.stderr()).toEqual([130, null]);
       expect(run.stdout()).toBe('');
-      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
+      if (stage !== 'implementation')
+        await expect(
+          readdir(join(run.source, '.darkfactory')),
+        ).rejects.toThrow();
       await run.assertStopped();
     } finally {
       await run.clean();

@@ -65,7 +65,7 @@ const server = createServer((request, response) => {
     if (resultPath && input.toolResults === 0)
       appendFileSync(
         join(dirname(resultPath), 'agent-contexts.jsonl'),
-        `${JSON.stringify({ role, payload: input.payload })}\n`,
+        `${JSON.stringify({ role, payload: input.payload, tools: input.tools })}\n`,
       );
     if (
       input.model !== 'gpt-6.1-sol' &&
@@ -73,6 +73,11 @@ const server = createServer((request, response) => {
     ) {
       response.writeHead(400).end('Wrong model ID');
       return;
+    }
+    if (mode === 'slow-implementation' && role === 'implementation') {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10_000);
+      });
     }
     if (role === 'observer' && mode === 'observer-failure') {
       response.writeHead(400, { 'Content-Type': 'application/json' }).end(

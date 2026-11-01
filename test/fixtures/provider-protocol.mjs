@@ -18,6 +18,7 @@ export function decodeRequest(input) {
   }
   return {
     model: input.model,
+    tools: (input.tools ?? []).map((tool) => tool.name ?? tool.function?.name),
     payload,
     messageCount: messages.length,
     toolResults: messages.filter(

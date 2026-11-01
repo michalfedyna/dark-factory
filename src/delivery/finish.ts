@@ -4,7 +4,6 @@ import {
 } from '../contracts/delivery.js';
 import { publishPullRequest } from '../integrations/github/publish.js';
 import { renderPullRequest } from './pull-request.js';
-import { approve } from './approval.js';
 import type { DeliveryOptions, RunResources } from './context.js';
 
 export async function finishDelivery(
@@ -26,17 +25,8 @@ export async function finishDelivery(
       (record) => record.path,
     );
     await artifacts.preview(preview);
-    if (
-      project.githubRepo &&
-      (await approve(
-        options.ask,
-        'Push this candidate and create a draft GitHub PR?',
-        `${project.githubRepo} ← darkfactory/${runId}\n\n${state.summary.title}\n\n${preview}\nScreenshots and the verification manifest will be committed and published. Inspect screenshots for sensitive data before approving. Private logs remain in ${directory}.`,
-        'Publish',
-        'Keep local',
-        signal,
-      ))
-    ) {
+    signal.throwIfAborted();
+    if (project.githubRepo) {
       options.progress('Publishing draft PR');
       pullRequestUrl = await publishPullRequest({
         project,

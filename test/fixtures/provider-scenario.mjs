@@ -41,12 +41,18 @@ export function scenarioReply(request, resultPath, mode) {
           },
         }
       : {
-          result: JSON.parse(
-            readFileSync(
-              join(dirname(resultPath), 'project-plan.json'),
-              'utf8',
-            ),
-          ),
+          result:
+            mode === 'inspection-blocked'
+              ? { plan: null, blockers: ['Missing native app identifier.'] }
+              : {
+                  plan: JSON.parse(
+                    readFileSync(
+                      join(dirname(resultPath), 'project-plan.json'),
+                      'utf8',
+                    ),
+                  ),
+                  blockers: [],
+                },
         };
   if (role === 'implementation')
     return toolResults === 0
@@ -93,7 +99,9 @@ export function scenarioReply(request, resultPath, mode) {
         name: 'agent_device',
         args: { targetId: 'ios', operation: 'screenshot', args: [] },
       },
-    ];
+    ].filter((action) =>
+      payload.targets.some((target) => target.id === action.args.targetId),
+    );
     const failed = mode === 'delivery-qa-repair' && prefix === 'r1';
     return toolResults < actions.length
       ? { tool: actions[toolResults] }
@@ -104,7 +112,9 @@ export function scenarioReply(request, resultPath, mode) {
               {
                 id: 'AC1',
                 status: failed ? 'fail' : 'pass',
-                evidenceIds: [`${prefix}-e1`, `${prefix}-e5`, `${prefix}-e8`],
+                evidenceIds: payload.targets.length
+                  ? [`${prefix}-e1`, `${prefix}-e5`, `${prefix}-e8`]
+                  : [`${prefix}-e1`],
                 notes: 'Offline test checks and stub UI journeys completed.',
               },
             ],
@@ -173,9 +183,22 @@ export function scenarioReply(request, resultPath, mode) {
           },
         },
       }
-    : {
-        result: JSON.parse(
-          resultPath ? readFileSync(resultPath, 'utf8') : '{}',
-        ),
-      };
+    : toolResults === 1
+      ? {
+          tool: {
+            name: 'ask',
+            args: {
+              question: 'Start implementation?',
+              contextTitle: 'Issue plan',
+              context:
+                'Export filtered issues as CSV. Confirmation starts implementation, verification, repairs, and draft PR publication, including screenshots, without further prompts.',
+              options: ['Start', 'Revise'],
+            },
+          },
+        }
+      : {
+          result: JSON.parse(
+            resultPath ? readFileSync(resultPath, 'utf8') : '{}',
+          ),
+        };
 }

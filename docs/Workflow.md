@@ -2,7 +2,7 @@
 
 **Target design, not the current implementation.** For implemented behavior and
 code ownership, read [architecture.md](architecture.md) and [delivery.md](delivery.md).
-The current CLI ends at an explicitly approved draft PR; it does not yet implement
+The current CLI runs hands-off after exploration confirmation and ends at a draft PR; it does not yet implement
 the planning/task graph, durable recovery, design integrations, or PR-check loop
 described below.
 
@@ -11,7 +11,7 @@ described below.
 Turn a user request into reviewed, tested software and a pull request through a
 controlled, repeatable workflow. This is the target design for DarkFactory, not
 a description of all capabilities already implemented. The initial delivery slice
-(implementation, QA, review, bounded repairs, summary, and approved draft PR) is
+(implementation, QA, review, bounded repairs, summary, and automatic draft PR) is
 described in [delivery.md](delivery.md), including its local-provider limitations.
 
 LLMs generate proposals; software decides what is allowed, what happens next,
@@ -44,9 +44,11 @@ traceable decisions.
    automatically valid for another.
 8. **Bound autonomy.** Retries, repair rounds, concurrency, runtime, tokens, and
    cost have explicit limits. Exhaustion or repeated lack of progress stops work
-   and escalates to the user.
+   and reports a blocker.
 9. **Keep humans in control.** Users can clarify, approve, request changes, pause,
    or cancel. Silence and conversational summaries never count as approval.
+   Only exploration has `ask`. Once the issue plan is accepted, agents work
+   autonomously or report blockers; they never prompt for more input or approval.
 
 ## 3. Workflow and gates
 
@@ -81,9 +83,10 @@ criteria, verification requirements, permissions, or increased budgets require a
 revised plan and renewed approval. Mechanical fixes within the approved scope do
 not.
 
-Plan approval permits scoped implementation, not publication, merge, or
-deployment. Publication requires a separate decision unless explicitly authorized
-in the approved plan. The workflow ends at a PR ready for human merge.
+The final exploration confirmation authorizes scoped implementation, verification,
+repairs, and draft PR publication, including verification evidence. It does not
+authorize merge or deployment. Material changes stop the run; a revised scope
+requires a new exploration, not an agent question during delivery.
 
 ## 4. Scoped work and independent verification
 

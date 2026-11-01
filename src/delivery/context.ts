@@ -4,22 +4,24 @@ import type {
   Workspace,
 } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
-import type { Ask } from '../contracts/interaction.js';
 import type { IssueBrief } from '../contracts/issue.js';
-import type { Project } from '../contracts/project.js';
+import type { Project, ProjectInspection } from '../contracts/project.js';
 import type { Observe } from '../contracts/progress.js';
 import type { RunRepository } from '../integrations/git/repository.js';
 import type { createRunArtifacts } from './artifacts.js';
 import type { EvidenceRecorder } from './evidence.js';
 
 export interface DeliveryOptions {
-  inspect: (brief: IssueBrief, signal: AbortSignal) => Promise<Project>;
+  inspect: (
+    brief: IssueBrief,
+    signal: AbortSignal,
+  ) => Promise<ProjectInspection>;
   model: FactoryConfig['model'];
   apiKey: string;
   runId: string;
-  ask: Ask;
   signal: AbortSignal;
   progress: (message: string) => void;
+  diagnostic?: (message: string) => void;
   observe?: Observe;
 }
 

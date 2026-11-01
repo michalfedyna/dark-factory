@@ -18,7 +18,7 @@ Include what changed, tests actually run, and honest limitations.
 - Do not invent screenshots, test results, URLs or CI status.
 - Do not perform Git or GitHub operations.
 
-The controller will add immutable revision and evidence links and ask for publication approval.`;
+The controller will add immutable revision and evidence links and automatically publish a draft PR after passing gates.`;
 
 export interface SummaryContext {
   issue: Pick<IssueBrief, 'title' | 'kind' | 'desiredOutcome'>;

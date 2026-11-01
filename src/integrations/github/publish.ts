@@ -18,6 +18,8 @@ export async function publishPullRequest(options: {
   const { project, repository, state, runId, directory, signal } = options;
   if (!project.githubRepo)
     throw new Error('A GitHub remote is required for publication.');
+  if (state.brief.readiness !== 'ready' || !state.brief.confirmedByUser)
+    throw new Error('Publication requires a confirmed, ready brief.');
   const round = state.history.at(-1);
   if (
     state.status !== 'approved' ||

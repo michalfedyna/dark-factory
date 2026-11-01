@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { factoryConfigSchema } from '../src/config/schema.js';
-import type { Ask } from '../src/contracts/interaction.js';
 import { createDeliveryRuntime } from '../src/delivery/runtime.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import {
@@ -140,53 +139,54 @@ test('run repositories do not inherit a Git hook index or repository environment
   );
 });
 
-test.each(['Stop', 'yes', ''])(
-  'only exact implementation approval permits preparation (answer: %j)',
-  async (answer) => {
-    const { source, base } = await setup();
-    const ask = vi.fn<Ask>().mockResolvedValue(answer);
-    const runtime = createDeliveryRuntime({
-      inspect: () =>
-        Promise.resolve({
-          ...projectPlan,
-          repository: source,
-          baseRevision: base,
-        }),
-      model: factoryConfigSchema.parse({}).model,
-      apiKey: 'not-for-project-commands',
-      runId: 'denied',
-      ask,
-      signal,
-      progress: () => {},
-    });
-    try {
-      await expect(runtime.operations.prepare(brief, signal)).rejects.toThrow(
-        'not approved',
-      );
-      expect(ask).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({
-          contextTitle: 'Implementation plan',
-          options: ['Implement', 'Stop'],
-        }),
-        expect.any(AbortSignal),
-      );
-      const context: unknown = JSON.parse(ask.mock.calls[0]![0].context);
-      expect(context).toMatchObject({
-        brief,
+test('a confirmed brief prepares delivery without a user interaction callback', async () => {
+  const { source, base } = await setup();
+  const runtime = createDeliveryRuntime({
+    inspect: () =>
+      Promise.resolve({
+        ...projectPlan,
         repository: source,
         baseRevision: base,
-        project: { ...projectPlan, repository: source, baseRevision: base },
-        maxRepairRounds: 3,
-      });
-      expect(context).toHaveProperty(
-        'warning',
-        expect.stringContaining('Publication requires a separate approval.'),
-      );
-      await expect(
-        readFile(join(source, '.darkfactory/runs/denied/input.json')),
-      ).rejects.toThrow();
-    } finally {
-      await runtime.close();
-    }
-  },
-);
+      }),
+    model: factoryConfigSchema.parse({}).model,
+    apiKey: 'not-for-project-commands',
+    runId: 'automatic',
+    signal,
+    progress: () => {},
+  });
+  try {
+    await expect(runtime.operations.prepare(brief, signal)).resolves.toBe(base);
+    const input: unknown = JSON.parse(
+      await readFile(
+        join(source, '.darkfactory/runs/automatic/input.json'),
+        'utf8',
+      ),
+    );
+    expect(input).toMatchObject({ brief, baseRevision: base });
+  } finally {
+    await runtime.close();
+  }
+});
+
+test('unconfirmed briefs cannot authorize delivery even through a direct runtime call', async () => {
+  const inspect = vi.fn().mockResolvedValue(projectPlan);
+  const runtime = createDeliveryRuntime({
+    inspect,
+    model: factoryConfigSchema.parse({}).model,
+    apiKey: 'private-key',
+    runId: 'unconfirmed',
+    signal,
+    progress: () => {},
+  });
+  try {
+    await expect(
+      runtime.operations.prepare(
+        { ...brief, readiness: 'needs-clarification', confirmedByUser: false },
+        signal,
+      ),
+    ).rejects.toThrow('confirmed, ready brief');
+    expect(inspect).not.toHaveBeenCalled();
+  } finally {
+    await runtime.close();
+  }
+});

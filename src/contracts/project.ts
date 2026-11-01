@@ -79,4 +79,16 @@ export const projectSchema = projectPlanSchema.safeExtend({
   deviceCommand: z.string().trim().min(1).default('agent-device'),
 });
 
+export const projectInspectionSchema = z
+  .strictObject({
+    plan: projectPlanSchema.nullable(),
+    blockers: z.array(z.string().trim().min(1)),
+  })
+  .refine(
+    (result) =>
+      result.plan ? result.blockers.length === 0 : result.blockers.length > 0,
+    'Return either a complete plan with no blockers or null with specific blockers.',
+  );
+
 export type Project = z.infer<typeof projectSchema>;
+export type ProjectInspection = Project | { blockers: string[] };
