@@ -59,6 +59,14 @@ authorizes publication of verification screenshots.
 The final result is JSON on stdout; prompts and diagnostics go to stderr.
 Run artifacts are saved under `.darkfactory/runs/` in the target repository.
 
+The Figma UI and implementation agents can call `test` while working. They supply
+a runnable web/native target and focused testing instructions. A constrained
+browser/device tester returns observed behavior and up to four screenshots, or
+just a description when `target.screenshots` is `false`. Each call prepares and
+starts its target and cleans up its servers and automation sessions. Progress
+test artifacts stay under `progress-tests/` in the run directory; they never count
+as final QA evidence or replace independent verification and review.
+
 ## Configuration
 
 Edit [`factory.config.json`](factory.config.json) to configure the model, proxy,

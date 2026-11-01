@@ -11,36 +11,34 @@ const targetOptions = {
   screenshots: z.boolean().default(true),
 };
 
+export const verificationTargetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    ...targetOptions,
+    kind: z.literal('web'),
+    url: z.url({ protocol: /^https?$/ }),
+    start: command,
+  }),
+  z.strictObject({
+    ...targetOptions,
+    kind: z.literal('mobile'),
+    platform: z.enum(['ios', 'android']),
+    app: z.string().trim().min(1),
+    prepare: command,
+    device: z
+      .string()
+      .trim()
+      .min(1)
+      .describe(
+        'Device name, iOS simulator UDID, or Android emulator serial (emulator-N). Omit to let device tooling select an available target.',
+      )
+      .optional(),
+  }),
+]);
+
 export const verificationPlanSchema = z
   .strictObject({
     checks: z.array(command.extend({ id: name })).min(1),
-    targets: z
-      .array(
-        z.discriminatedUnion('kind', [
-          z.strictObject({
-            ...targetOptions,
-            kind: z.literal('web'),
-            url: z.url({ protocol: /^https?$/ }),
-            start: command,
-          }),
-          z.strictObject({
-            ...targetOptions,
-            kind: z.literal('mobile'),
-            platform: z.enum(['ios', 'android']),
-            app: z.string().trim().min(1),
-            prepare: command,
-            device: z
-              .string()
-              .trim()
-              .min(1)
-              .describe(
-                'Device name, iOS simulator UDID, or Android emulator serial (emulator-N). Omit to let device tooling select an available target.',
-              )
-              .optional(),
-          }),
-        ]),
-      )
-      .default([]),
+    targets: z.array(verificationTargetSchema).default([]),
   })
   .superRefine((plan, context) => {
     for (const field of ['checks', 'targets'] as const) {

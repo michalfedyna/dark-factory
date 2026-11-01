@@ -12,6 +12,7 @@ import { createFigmaTools } from '../src/tools/figma.js';
 import { createFigmaProvider } from './fixtures/figma-provider.js';
 import { brief } from './fixtures/brief.js';
 import { figmaSource } from './fixtures/figma.js';
+import { unusedTestTool } from './fixtures/progress-test.js';
 
 test.each([
   ['chat', false],
@@ -46,7 +47,7 @@ test.each([
           sources: [figmaSource],
         },
         workspace,
-        tools: { figma: tools.figma },
+        tools: { figma: tools.figma, test: unusedTestTool(controller.signal) },
         signal: controller.signal,
         ...(streaming ? { debug: vi.fn() } : {}),
       });

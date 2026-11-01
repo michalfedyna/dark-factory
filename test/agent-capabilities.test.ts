@@ -12,6 +12,7 @@ import { factoryConfigSchema } from '../src/config/schema.js';
 import { implementationContext } from '../src/delivery/agent-context.js';
 import { createFigmaTools } from '../src/tools/figma.js';
 import { candidateState, projectPlan } from './fixtures/delivery.js';
+import { unusedTestTool } from './fixtures/progress-test.js';
 
 vi.mock('../src/agents/generation.js');
 const workspaces: Workspace[] = [];
@@ -29,7 +30,7 @@ afterEach(async () => {
 });
 
 test.each(['implementation', 'figma'] as const)(
-  '%s isolates documentation messages and does not expose direct search',
+  '%s exposes progress testing and isolates documentation research',
   async (role) => {
     vi.mocked(generateResult).mockResolvedValue({});
     const model = factoryConfigSchema.parse({}).model;
@@ -50,6 +51,7 @@ test.each(['implementation', 'figma'] as const)(
       )({
         context: implementationContext(state, projectPlan, []),
         workspace,
+        tools: { test: unusedTestTool(signal) },
         signal,
       });
     else
@@ -63,6 +65,7 @@ test.each(['implementation', 'figma'] as const)(
           sources: [],
         },
         tools: {
+          test: unusedTestTool(signal),
           figma: createFigmaTools({
             sources: [],
             token: '',
@@ -77,6 +80,7 @@ test.each(['implementation', 'figma'] as const)(
     if (!agent) throw new Error('Agent generation was not called.');
     expect(Object.keys(await agent.listAgents())).toEqual(['documentation']);
     expect(await agent.listTools()).not.toHaveProperty('search_web');
+    expect(await agent.listTools()).toHaveProperty('test');
     const options = await agent.getDefaultOptions();
     expect(
       options.delegation?.messageFilter?.({

@@ -48,12 +48,15 @@ async function waitForWebTarget(
 }
 
 export function createQaSession(
-  run: RunResources,
+  run: Pick<
+    RunResources,
+    'projectSandbox' | 'automationSandbox' | 'browserConfig' | 'artifacts'
+  >,
   project: VerificationProject,
-  round: number,
+  sessionPrefix: string,
   evidence: EvidenceRecorder,
 ): QaSession {
-  const { projectSandbox, automationSandbox, runId, browserConfig } = run;
+  const { projectSandbox, automationSandbox, browserConfig } = run;
   const servers: { target: QaTarget; server: QaServer }[] = [];
   let active = false;
   let closing: Promise<void> | undefined;
@@ -140,7 +143,7 @@ export function createQaSession(
           async () => {
             const results = await Promise.allSettled(
               project.targets.map(async (target) => {
-                const session = `${runId}-r${round}-${target.id}`;
+                const session = `${sessionPrefix}-${target.id}`;
                 if (!automationSandbox.executeCommand)
                   throw new Error(
                     'The automation sandbox must support command execution.',

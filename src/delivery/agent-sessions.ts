@@ -10,6 +10,8 @@ import { createSummary } from '../agents/summary.js';
 import type { DeliveryState } from '../contracts/delivery.js';
 import { createQaTools } from '../tools/qa.js';
 import { createQaEvidenceTool } from '../tools/qa-evidence.js';
+import { createTestTool } from '../tools/test.js';
+import { createProgressTestRunner } from './progress-test.js';
 import {
   implementationContext,
   qaContext,
@@ -82,7 +84,13 @@ export function createDeliveryAgents(
               sources,
             },
             workspace,
-            tools: { figma: tools.figma },
+            tools: {
+              figma: tools.figma,
+              test: createTestTool({
+                run: createProgressTestRunner(run, options),
+                signal,
+              }),
+            },
             signal,
             ...observation,
           });
@@ -126,6 +134,12 @@ export function createDeliveryAgents(
               ),
             ),
             workspace: run.implementationWorkspace,
+            tools: {
+              test: createTestTool({
+                run: createProgressTestRunner(run, options),
+                signal,
+              }),
+            },
             signal,
             ...observation,
           });

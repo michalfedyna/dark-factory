@@ -113,7 +113,12 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         revision: candidate.revision,
         project,
         evidence,
-        qaSession: createQaSession(run, project, candidate.round, evidence),
+        qaSession: createQaSession(
+          run,
+          project,
+          `${run.runId}-r${candidate.round}`,
+          evidence,
+        ),
         sandboxQaWorkspace,
       };
       return round;

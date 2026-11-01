@@ -10,6 +10,7 @@ import { createFigmaTools } from '../src/tools/figma.js';
 import { webFetchTool } from '../src/tools/web-fetch.js';
 import { candidateState, projectPlan } from './fixtures/delivery.js';
 import { createModelProvider } from './fixtures/model-provider.js';
+import { unusedTestTool } from './fixtures/progress-test.js';
 
 function requestUrl(input: Parameters<typeof fetch>[0]): string {
   return input instanceof URL
@@ -61,6 +62,7 @@ test.each([
         workspace,
         signal,
         observe,
+        tools: { test: unusedTestTool(signal) },
         ...(streaming ? { debug } : {}),
       };
       const result =
@@ -83,6 +85,7 @@ test.each([
                 sources: [],
               },
               tools: {
+                ...input.tools,
                 figma: createFigmaTools({
                   sources: [],
                   token: '',
@@ -171,6 +174,7 @@ test.each(['chat', 'responses'] as const)(
         context: implementationContext(candidateState(), projectPlan, []),
         workspace,
         signal: provider.controller.signal,
+        tools: { test: unusedTestTool(provider.controller.signal) },
       });
       const rejected = expect(running).rejects.toThrow(
         'Cancelled documentation',

@@ -4,6 +4,7 @@ import type { FactoryConfig } from '../config/schema.js';
 import type { FigmaResult, FigmaSource } from '../contracts/figma.js';
 import { implementationSchema } from '../contracts/delivery.js';
 import type { Project, VerificationPlan } from '../contracts/project.js';
+import type { createTestTool } from '../tools/test.js';
 import { createModelConfig } from './model.js';
 import { createDocumentation } from './documentation.js';
 import {
@@ -36,7 +37,7 @@ Verification handoff:
 - Checks and native preparation must preserve captured source, tests, manifests, and lockfiles. A setup mutation invalidates the attempt and returns to implementation; it never authorizes QA or publication.
 - Discover installed targets before reporting missing infrastructure: use emulator -list-avds, adb devices, and xcrun simctl list devices available as applicable. An empty adb list only means no device is attached or booted; installed simulators/AVDs can be booted by the preparation/device tooling. Use ANDROID_AVD_HOME for host AVD discovery despite the private HOME; use emulator -read-only when booting a host AVD and keep writable emulator state in the private run home. Stop processes you start; do not shut down pre-existing user devices.
 - Attempt the chosen verification path before declaring a toolchain blocker. Prefer an already-installed compatible JDK (including Android Studio's bundled JDK) or in-scope project compatibility fixes after an actual build failure. A missing legacy Simulator.app is not a blocker when simctl/device tooling works. Do not install host-wide tools with Homebrew, sudo, or system package managers, weaken meaningful checks, or remove explicitly required targets. Report an observed missing prerequisite only when it prevents required verification with no suitable alternative.
-- Independent browser/device QA and screenshots belong to the later QA stage. Do not run them here or treat pending QA as an implementation blocker. Report any local verification limitation in the summary without claiming a pass.
+- Use test to check current progress through a browser or device when useful. Supply focused instructions and a runnable target; request screenshots for visual feedback or set target.screenshots to false for a description only. The tool owns target preparation, servers and testing sessions. These checks are advisory, not final independent QA or approval. Do not treat pending final QA as an implementation blocker; report local verification limitations without claiming a pass.
 - Use blockers only for issues that prevent implementation or a usable verification handoff. A blocked result may include a known verification plan; use null when no valid plan can be supplied. Any blocker stops the workflow, even when verification is present.
 
 Boundaries and repairs:
@@ -45,7 +46,7 @@ Boundaries and repairs:
 - When repair feedback is supplied, address its findings, failed criterion notes, and failed check logs. QA and review will independently recheck the entire new candidate.
 - Assumptions are unverified, not requirements. Report a blocker if a necessary assumption cannot be established.
 - Do not disable tests to pass a gate.
-- Keep background servers out of this stage; configured verification commands start them later.
+- Do not start background servers yourself; test owns progress-testing servers and the controller starts final verification targets later.
 - Work is supervised. Do not set command execution timeouts; let commands finish and respect cancellation.
 - If the approved scope cannot solve a finding, return a blocker instead of expanding scope.
 - Summarize the complete task implementation in the current candidate, not only the latest repair. Do not claim verification that you did not run.`;
@@ -73,7 +74,10 @@ export function createImplementation(
   apiKey: string,
 ) {
   return (
-    input: DeliveryAgentInput<ImplementationContext> & { workspace: Workspace },
+    input: DeliveryAgentInput<ImplementationContext> & {
+      workspace: Workspace;
+      tools: { test: ReturnType<typeof createTestTool> };
+    },
   ) => {
     const modelConfig = createModelConfig(model, apiKey);
     const agent = new Agent({
@@ -90,6 +94,7 @@ export function createImplementation(
         delegation: { messageFilter: () => [], hookErrorStrategy: 'throw' },
       },
       workspace: input.workspace,
+      tools: input.tools,
     });
     return generateDeliveryResult(agent, implementationSchema, input);
   };

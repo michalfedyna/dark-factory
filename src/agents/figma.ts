@@ -4,6 +4,7 @@ import type { FactoryConfig } from '../config/schema.js';
 import { figmaResultSchema, type FigmaSource } from '../contracts/figma.js';
 import type { Project } from '../contracts/project.js';
 import type { createFigmaTools } from '../tools/figma.js';
+import type { createTestTool } from '../tools/test.js';
 import { createModelConfig } from './model.js';
 import { createDocumentation } from './documentation.js';
 import {
@@ -33,7 +34,8 @@ Read and scaffold:
 UI-only boundary:
 - Use typed props, callback interfaces and clearly labeled sample content. Leave data loading, API calls, authentication, domain validation, persistence, routing behavior and state management to implementation. Do not add fake successful interactions or business logic.
 - Preserve existing application behavior. Add presentation interfaces without rewiring functional code. Semantic markup and visual states are UI work; wiring those states and interactions is not.
-- Never run Git, publish, edit factory artifacts, or work outside this run's repository or allowedPaths. Do not weaken tests. Keep background servers and browser/device QA out of this stage. Do not set command execution timeouts; respect cancellation.
+- Use test to inspect current UI progress, layout, accessibility and responsive states when useful. Supply a runnable target and focused instructions; request screenshots for visual comparison with Figma or set target.screenshots to false for a description only. Ask about scaffold presentation, not unwired business behavior. The tool owns preparation, servers and testing sessions; feedback does not replace later independent QA/review.
+- Never run Git, publish, edit factory artifacts, or work outside this run's repository or allowedPaths. Do not weaken tests or start background servers yourself. Do not set command execution timeouts; respect cancellation.
 - Do not ask the user questions. Missing required designs/access or unresolved UI requirements are blockers, not guesses. Missing app source is scaffold work, not a blocker.
 
 Handoff:
@@ -50,7 +52,9 @@ export function createFigma(model: FactoryConfig['model'], apiKey: string) {
   return (
     input: DeliveryAgentInput<FigmaContext> & {
       workspace: Workspace;
-      tools: Pick<ReturnType<typeof createFigmaTools>, 'figma'>;
+      tools: Pick<ReturnType<typeof createFigmaTools>, 'figma'> & {
+        test: ReturnType<typeof createTestTool>;
+      };
     },
   ) => {
     const modelConfig = createModelConfig(model, apiKey);

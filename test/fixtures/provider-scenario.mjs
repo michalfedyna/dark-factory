@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 // Identify roles from their real data contracts, never from instruction wording.
 export function requestRole({ payload }) {
+  if (payload?.instructions && payload?.target) return 'progress-test';
   if (payload?.searchResults) return 'search-cleanup';
   if (payload?.library) return 'documentation';
   if (payload?.events) return 'observer';
@@ -19,6 +20,62 @@ export function scenarioReply(request, resultPath, mode) {
   const role = requestRole(request);
   const { payload, toolResults } = request;
   const prefix = payload?.evidence?.[0]?.id.split('-e')[0] ?? 'r1';
+  if (role === 'progress-test') {
+    const operations = [
+      'open',
+      'snapshot',
+      ...(payload.target.screenshots ? ['screenshot'] : []),
+    ];
+    if (toolResults < operations.length)
+      return {
+        tool: {
+          name:
+            payload.target.kind === 'web' ? 'agent_browser' : 'agent_device',
+          args: {
+            targetId: payload.target.id,
+            operation: operations[toolResults],
+            args: [],
+          },
+        },
+      };
+    return {
+      result: { status: 'passed', description: 'Observed current progress.' },
+    };
+  }
+  if (
+    mode === 'progress-test' &&
+    (role === 'implementation' || role === 'figma')
+  ) {
+    if (toolResults === 0)
+      return {
+        tool: {
+          name: 'test',
+          args: JSON.parse(
+            readFileSync(
+              join(dirname(resultPath), 'progress-test.json'),
+              'utf8',
+            ),
+          ),
+        },
+      };
+    return {
+      result:
+        role === 'implementation'
+          ? {
+              summary: 'Tested progress.',
+              blockers: ['Test complete.'],
+              verification: null,
+            }
+          : {
+              summary: 'Tested progress.',
+              components: [],
+              designSystem: [],
+              implementationNotes: [],
+              limitations: [],
+              blockers: [],
+            },
+    };
+  }
   if (role === 'search-cleanup')
     return {
       result: {
