@@ -72,6 +72,7 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Avoid unnecessary dependencies and features.
 - Test module behavior and the boundaries between modules.
 - Document configuration options and changes to user-facing behavior.
+- Keep `README.md` short and focused on setup, usage, configuration, and safety. Add implementation details only when users need them; keep internal design and workflow details in developer documentation.
 
 ## Test Quality
 

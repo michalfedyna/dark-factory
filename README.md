@@ -24,9 +24,9 @@ cp config/router.example.yaml config/router.yaml
 cp .env.example .env
 ```
 
-Skip copying files you already configured. Set the same private client key in
-`config/router.yaml` (`access.api-keys`) and `.env` (`DARKFACTORY_API_KEY`). This is
-the proxy client key, **not** your provider API key. Both files are gitignored.
+Set the same private client key in `config/router.yaml` (`access.api-keys`) and
+`.env` (`DARKFACTORY_API_KEY`), **not** your provider API key. Both files are
+gitignored. Skip copying files you already configured.
 
 Authenticate the proxy, then build and link the CLI:
 
@@ -47,13 +47,12 @@ dark start
 dark start --issue "Export filtered issues as CSV" > delivery.json
 ```
 
-Answer the follow-up questions and confirm the plan. The factory then implements,
-verifies, repairs, and publishes a draft PR without further approval prompts.
-Without a usable GitHub remote, verified work stays local. Confirmation also
-authorizes publication of verification screenshots.
+Answer the questions and confirm the plan. The factory implements, verifies, and
+publishes a draft PR without further approval, including verification screenshots.
+Without a usable GitHub remote, verified work stays local.
 
 - `--config /path/to/factory.config.json`: use configuration stored elsewhere.
-- `--debug`: show live agent activity instead of progress summaries.
+- `--debug`: show live agent activity.
 - Ctrl+C or Escape: cancel the run. Interrupted runs cannot be resumed.
 
 The final result is JSON on stdout; prompts and diagnostics go to stderr.
@@ -61,14 +60,6 @@ Run artifacts are saved under `.darkfactory/runs/` in the target repository.
 
 Visual QA can use reference PNGs in `docs/design/`. Mixed blocked results list
 repairable defects separately from unresolved verification or scope decisions.
-
-The Figma UI and implementation agents can call `test` while working. They supply
-a runnable web/native target and focused testing instructions. A constrained
-browser/device tester returns observed behavior and up to four screenshots, or
-just a description when `target.screenshots` is `false`. Each call prepares and
-starts its target and cleans up its servers and automation sessions. Progress
-test artifacts stay under `progress-tests/` in the run directory; they never count
-as final QA evidence or replace independent verification and review.
 
 ## Configuration
 
@@ -79,18 +70,11 @@ progress summaries, sandbox isolation, and Figma access.
   `model.baseUrl`, `model.api`, and `model.apiKeyEnv`. Otherwise, stop any proxy
   service already using the configured port.
 - For issues with Figma links, set `FIGMA_ACCESS_TOKEN` in `.env`.
-- To disable progress summaries and their extra model calls, set
-  `observer.enabled` to `false`.
+- To disable progress summaries, set `observer.enabled` to `false`.
 
 `.env` and router arguments are resolved relative to the config directory.
 Environment variables override `.env` values. The config location does not select
 the target repository.
-
-Documentation searches use the configured model for one extra, tool-free cleanup
-call per nonempty search. It cleans titles and snippets into plain text without
-changing source URLs or ranking. If cleanup fails or exceeds 30 seconds, search
-returns the parsed results with a cleanup error. Search snippets are not verified
-documentation; the documentation agent still reads the relevant source pages.
 
 ## Safety
 
