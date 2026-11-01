@@ -99,14 +99,14 @@ describe('background progress observer', () => {
             finish = resolve;
           }),
       )
-      .mockResolvedValue('Inspecting the repository.');
+      .mockResolvedValue('Implementing the feature.');
     const observer = setup(summarize);
-    observer.observe({ kind: 'stage', message: 'Inspecting repository' });
+    observer.observe({ kind: 'stage', message: 'Implementing' });
     await vi.advanceTimersByTimeAsync(1_000);
     observer.pause();
     observer.observe({
       kind: 'tool',
-      agent: 'inspection',
+      agent: 'exploration',
       tool: 'ask',
       status: 'started',
     });
@@ -118,7 +118,7 @@ describe('background progress observer', () => {
     expect(observer.emit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(900);
     expect(observer.emit).toHaveBeenCalledExactlyOnceWith(
-      'Inspecting the repository.',
+      'Implementing the feature.',
     );
     observer.pause();
     observer.observe({ kind: 'check', id: 'test', status: 'started' });

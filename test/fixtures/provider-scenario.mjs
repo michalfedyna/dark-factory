@@ -8,7 +8,6 @@ export function requestRole({ payload }) {
   if (payload?.allowedPaths) return 'implementation';
   if (payload?.targets) return 'qa';
   if (payload?.issue) return 'summary';
-  if (payload?.task) return 'inspection';
   return 'exploration';
 }
 
@@ -23,28 +22,59 @@ export function scenarioReply(request, resultPath, mode) {
       },
     };
   }
-  if (role === 'inspection')
-    return toolResults === 0
-      ? {
-          tool: {
-            name: 'mastra_workspace_read_file',
-            args: { path: 'package.json' },
-          },
-        }
-      : {
-          result:
-            mode === 'inspection-blocked'
-              ? { plan: null, blockers: ['Missing native app identifier.'] }
-              : {
-                  plan: JSON.parse(
-                    readFileSync(
-                      join(dirname(resultPath), 'project-plan.json'),
-                      'utf8',
-                    ),
-                  ),
-                  blockers: [],
-                },
-        };
+  if (role === 'implementation' && mode === 'implementation-blocked')
+    return {
+      result: {
+        summary: 'Cannot proceed.',
+        blockers: ['Missing external API contract.'],
+        verification: null,
+      },
+    };
+  if (role === 'implementation' && mode === 'delivery-scaffold') {
+    const files = {
+      '.gitignore': 'node_modules/\n',
+      'feature.txt': 'implemented',
+      'package.json': JSON.stringify({
+        name: 'scaffolded-app',
+        version: '1.0.0',
+        scripts: {
+          dev: 'node server.cjs',
+          build: 'node --check server.cjs',
+          test: 'node --test check.cjs',
+        },
+      }),
+      'server.cjs':
+        "const http = require('node:http'); const content = require('node:fs').readFileSync('feature.txt', 'utf8'); if (require.main === module) http.createServer((_req, res) => res.end(content)).listen(Number(process.argv[2]), '127.0.0.1'); module.exports = content;\n",
+      'check.cjs':
+        "const test = require('node:test'); const assert = require('node:assert/strict'); test('serves the implemented feature', () => assert.equal(require('./server.cjs'), 'implemented'));\n",
+    };
+    const actions = [
+      ...Object.entries(files).map(([path, content]) => ({
+        name: 'mastra_workspace_write_file',
+        args: { path, content },
+      })),
+      {
+        name: 'mastra_workspace_execute_command',
+        args: {
+          command:
+            'npm install --package-lock-only --ignore-scripts --no-audit --no-fund',
+        },
+      },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    return {
+      result: {
+        summary: 'Scaffolded an executable app with scripts and a lockfile.',
+        blockers: [],
+        verification: JSON.parse(
+          readFileSync(
+            join(dirname(resultPath), 'verification-plan.json'),
+            'utf8',
+          ),
+        ),
+      },
+    };
+  }
   if (role === 'implementation')
     return toolResults === 0
       ? {
@@ -62,6 +92,12 @@ export function scenarioReply(request, resultPath, mode) {
             summary:
               'Implemented feature.txt and verified the configured check.',
             blockers: [],
+            verification: JSON.parse(
+              readFileSync(
+                join(dirname(resultPath), 'verification-plan.json'),
+                'utf8',
+              ),
+            ),
           },
         };
   if (role === 'qa') {
@@ -103,9 +139,13 @@ export function scenarioReply(request, resultPath, mode) {
               {
                 id: 'AC1',
                 status: failed ? 'fail' : 'pass',
-                evidenceIds: payload.targets.length
-                  ? [`${prefix}-e1`, `${prefix}-e5`, `${prefix}-e8`]
-                  : [`${prefix}-e1`],
+                evidenceIds: [
+                  ...payload.evidence.map((record) => record.id),
+                  ...actions.map(
+                    (_, index) =>
+                      `${prefix}-e${payload.evidence.length + index + 1}`,
+                  ),
+                ],
                 notes: 'Offline test checks and stub UI journeys completed.',
               },
             ],

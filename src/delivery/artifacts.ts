@@ -1,6 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { CommandResult } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
 import type {
   DeliveryResult,
@@ -38,8 +37,6 @@ export function createRunArtifacts(directory: string) {
       model: FactoryConfig['model'];
       baseRevision: string;
     }) => json('input.json', input, true),
-    setup: (index: number, result: CommandResult) =>
-      json(`setup-${index}.json`, result),
     preview: (markdown: string) =>
       writeFile(join(directory, 'pull-request-preview.md'), markdown, {
         mode: 0o600,

@@ -1,9 +1,13 @@
 import type { LocalSandbox } from '@mastra/core/workspace';
+import type { VerificationProject } from '../contracts/project.js';
 import type { QaSession, RunResources } from './context.js';
 
-export function createQaSession(run: RunResources, round: number): QaSession {
-  const { project, projectSandbox, automationSandbox, runId, browserConfig } =
-    run;
+export function createQaSession(
+  run: RunResources,
+  project: VerificationProject,
+  round: number,
+): QaSession {
+  const { projectSandbox, automationSandbox, runId, browserConfig } = run;
   const servers: Awaited<ReturnType<LocalSandbox['processes']['spawn']>>[] = [];
   let active = false;
   let closing: Promise<void> | undefined;

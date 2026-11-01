@@ -35,7 +35,6 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
         signal,
       ),
     validateQa: (state) => {
-      const run = environment.requireRun();
       const round = currentRound(state);
       const resources = environment.requireRound(round);
       return Promise.resolve(
@@ -45,7 +44,7 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
             ...round,
             evidence: [...resources.evidence.records],
           },
-          run.project.targets,
+          resources.project.targets,
         ),
       );
     },

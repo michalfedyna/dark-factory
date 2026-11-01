@@ -15,6 +15,7 @@ import { brief } from './fixtures/brief.js';
 import { uiProjectPlan } from './fixtures/delivery.js';
 import {
   createTestRepository,
+  availablePort,
   installQaAutomation,
   installPublicationAutomation,
   startCompiledFactory,
@@ -62,7 +63,7 @@ test.each([
           "if (require('node:fs').readFileSync('feature.txt', 'utf8') !== 'implemented repaired') { console.error('Expected repaired feature.'); process.exit(1); }",
         ];
       await writeFile(
-        join(directory, 'project-plan.json'),
+        join(directory, 'verification-plan.json'),
         JSON.stringify(plan),
       );
       run = await startCompiledFactory({
@@ -100,13 +101,13 @@ test.each([
             },
         );
       const expectedFields: Record<string, string[]> = {
-        inspection: ['task'],
         implementation: ['task', 'allowedPaths', 'checks', 'repair'],
         qa: ['acceptanceCriteria', 'constraints', 'targets', 'evidence'],
         review: [
           'task',
           'allowedPaths',
           'patch',
+          'verification',
           'evidence',
           'acceptanceResults',
           'previousFindings',
@@ -137,6 +138,8 @@ test.each([
         (context) => context.role === 'implementation',
       );
       expect(implementations[0]!.payload?.repair).toBeNull();
+      expect(implementations[0]!.payload?.checks).toEqual([]);
+      expect(contexts.some(({ role }) => role === 'inspection')).toBe(false);
       if (rounds > 1)
         expect(implementations[1]!.payload?.repair).toMatchObject({
           findings: [
@@ -232,4 +235,111 @@ test.each([
     }
   },
   25_000,
+);
+
+test.each(['chat', 'responses'])(
+  'implementation scaffolds and verifies an app from an empty README without repository inspection (%s)',
+  async (api) => {
+    const directory = await mkdtemp(join(tmpdir(), 'darkfactory-scaffold-'));
+    let run: Awaited<ReturnType<typeof startCompiledFactory>> | undefined;
+    try {
+      const { source, git, base } = await createTestRepository(directory, {
+        'README.md': '',
+      });
+      const port = await availablePort();
+      const bin = await installQaAutomation(directory);
+      const verification = {
+        checks: [
+          { id: 'build', command: 'npm', args: ['run', 'build'] },
+          { id: 'test', command: 'npm', args: ['test'] },
+        ],
+        targets: [
+          {
+            id: 'web',
+            kind: 'web',
+            url: `http://127.0.0.1:${port}`,
+            start: { command: 'npm', args: ['run', 'dev', '--', String(port)] },
+          },
+        ],
+      };
+      await writeFile(
+        join(directory, 'verification-plan.json'),
+        JSON.stringify(verification),
+      );
+      run = await startCompiledFactory({
+        directory,
+        source,
+        api,
+        mode: 'delivery-scaffold',
+        issue: 'Build a new app',
+        path: `${bin}:${process.env.PATH ?? ''}`,
+        timeoutMs: 25_000,
+      });
+      run.child.stdin.end('CSV\nStart\n');
+      const exit = await run.exit;
+      const result = deliveryResultSchema.parse(JSON.parse(run.stdout()));
+      const state = JSON.parse(
+        await readFile(join(result.runDirectory, 'state.json'), 'utf8'),
+      ) as {
+        history: {
+          evidence: {
+            kind: string;
+            operation: string;
+            exitCode: number;
+            path: string;
+          }[];
+        }[];
+      };
+      const logs = await Promise.all(
+        state.history.flatMap(({ evidence }) =>
+          evidence
+            .filter(({ kind }) => kind === 'check')
+            .map(({ path }) => readFile(path, 'utf8')),
+        ),
+      );
+      expect(exit, `${run.stderr()}\n${logs.join('\n')}`).toEqual([0, null]);
+      expect(result).toMatchObject({ status: 'ready', rounds: 1 });
+      const repository = join(result.runDirectory, 'repository');
+      expect(
+        JSON.parse(await readFile(join(repository, 'package.json'), 'utf8')),
+      ).toMatchObject({
+        scripts: {
+          dev: 'node server.cjs',
+          build: 'node --check server.cjs',
+          test: 'node --test check.cjs',
+        },
+      });
+      expect(
+        JSON.parse(
+          await readFile(join(repository, 'package-lock.json'), 'utf8'),
+        ),
+      ).toMatchObject({ name: 'scaffolded-app', lockfileVersion: 3 });
+      expect(
+        state.history[0]?.evidence.filter(({ kind }) => kind === 'check'),
+      ).toEqual([
+        expect.objectContaining({ operation: 'build', exitCode: 0 }),
+        expect.objectContaining({ operation: 'test', exitCode: 0 }),
+      ]);
+      expect(state.history[0]?.evidence).toContainEqual(
+        expect.objectContaining({ kind: 'screenshot', exitCode: 0 }),
+      );
+      const contexts = await readFile(
+        join(directory, 'agent-contexts.jsonl'),
+        'utf8',
+      );
+      expect(contexts).not.toContain('"role":"inspection"');
+      expect(contexts).toContain('mastra_workspace_execute_command');
+      expect(run.stderr()).not.toContain('Inspecting repository');
+      expect((await git(['rev-parse', 'HEAD'])).trim()).toBe(base);
+      expect((await git(['status', '--short'])).trim()).toBe(
+        '?? .darkfactory/',
+      );
+      await expect(readFile(join(source, 'package.json'))).rejects.toThrow();
+      await run.assertStopped();
+    } finally {
+      if (run) await run.clean();
+      else await rm(directory, { recursive: true, force: true });
+    }
+  },
+  30_000,
 );

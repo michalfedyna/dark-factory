@@ -3,7 +3,7 @@ import type { Workspace } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
 import { qaSchema } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
-import type { Project } from '../contracts/project.js';
+import type { VerificationPlan } from '../contracts/project.js';
 import type { createQaTools } from '../tools/qa.js';
 import { createModelConfig } from './model.js';
 import {
@@ -19,6 +19,7 @@ Independently verify every acceptance criterion on this exact candidate.
 You have read-only source access, trusted check evidence, and target-specific agent_browser and agent_device tools.
 
 - For web targets use agent_browser; for native iOS/Android use agent_device, never browser emulation.
+- If required UI work has no matching target, request changes with a defect finding. Do not treat check logs alone as UI verification.
 - First open each configured target, then snapshot, interact using fresh refs, and use the screenshot operation when required.
 - Read captured screenshot paths with the workspace read_file tool to inspect visuals when relevant; the current round's evidence directory is also read-only.
 - Use each tool's help operation for installed command syntax.
@@ -29,7 +30,7 @@ Each criterion needs evidence IDs returned by trusted checks or QA tools for thi
 Report actual versus expected behavior in findings, with source qa. verdict pass requires every criterion passing and no blocking findings.
 Unavailable devices, tools, apps or URLs mean blocked, not pass.`;
 
-type Target = Project['targets'][number];
+type Target = VerificationPlan['targets'][number];
 type QaTarget =
   | Pick<
       Extract<Target, { kind: 'web' }>,

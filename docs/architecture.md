@@ -58,16 +58,14 @@ CLIProxyAPI remains the model transport; it is not a user interface.
    invented answers or implicit confirmation.
 6. Validate the final issue brief with Zod and pass it directly to preparation.
    It stays in memory; there is no issue-file writer or separate save step.
-7. Require a confirmed, ready brief. A read-only inspection agent infers change
-   scope, setup commands, checks, network needs, and web/native targets from the
-   repository. It has no `ask` tool and cannot execute project code. Necessary
-   unknowns become explicit blockers, not prompts. The exploration confirmation
-   authorizes the full in-scope run; delivery has no interaction callback.
-   Prepare the run-owned repository and run implementation, checks, QA, and review
-   in a bounded repair cycle. Only passing candidates reach summary and automatic
-   draft PR publication. Without a usable GitHub remote, verified work stays local.
-   Inspection blockers use a separate diagnostic callback so they remain visible
-   after the progress spinner clears and do not enter Observer activity metadata.
+7. Require a confirmed, ready brief, recheck the pinned base, and prepare the
+   run-owned checkout and native-isolated workspaces. No inspection agent or
+   pre-implementation command plan is required. Implementation owns dependency
+   setup and app scaffolding, then returns actual check commands and web/native
+   targets for its candidate. Run checks, QA, and review in a bounded repair cycle.
+   The exploration confirmation authorizes the full in-scope run; delivery has no
+   interaction callback. Only passing candidates reach summary and automatic draft
+   PR publication. Without a usable GitHub remote, verified work stays local.
 8. Print only the final validated delivery JSON to stdout. Its run ID also names
    the artifact directory at `<git-root>/.darkfactory/runs/<run-id>/`.
 9. Close terminal input, shut down Mastra, and stop the owned proxy after
@@ -85,15 +83,14 @@ explicit, typed inputs for each delivery role; `agents/shared.ts` serializes onl
 that selected context. Full state, workflow status/reason, base/tree/revision
 bookkeeping, and round history are not included in initial agent task payloads.
 
-| Agent                 | Direct task input                                                                                                                             |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploration           | Original issue text; real user answers arrive through its own ask tool.                                                                       |
-| Repository inspection | Approved issue task; no Git branch, commit, remote, or full brief envelope.                                                                   |
-| Implementation        | Issue task, allowed paths, check commands; latest repair findings, failed criterion notes, and failed check-log tails only.                   |
-| QA                    | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence references.              |
-| Review                | Issue task, allowed paths, full candidate patch, current acceptance results/evidence references, and feedback from the last completed review. |
-| PR summary            | Issue title/kind/outcome, final implementation summary, check outcomes, QA criterion results/notes, review outcome, and remaining findings.   |
-| Progress observer     | Current stage, previous observer summary, latest 40 metadata events.                                                                          |
+| Agent             | Direct task input                                                                                                                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exploration       | Original issue text; real user answers arrive through its own ask tool.                                                                                                                  |
+| Implementation    | Issue task, repository-wide non-protected paths, previous candidate's check commands (initially empty); latest repair findings, failed criterion notes, and failed check-log tails only. |
+| QA                | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence references.                                                         |
+| Review            | Issue task, allowed paths, full candidate patch, verification plan, current acceptance results/evidence references, and feedback from the last completed review.                         |
+| PR summary        | Issue title/kind/outcome, final implementation summary, check outcomes, QA criterion results/notes, review outcome, and remaining findings.                                              |
+| Progress observer | Current stage, previous observer summary, latest 40 metadata events.                                                                                                                     |
 
 `agents/task.ts` selects issue-task content: problem, desired outcome, affected
 users, scope, requirements, acceptance criteria, constraints, assumptions, user
@@ -102,6 +99,8 @@ Assumptions stay explicitly labeled as unverified.
 
 QA does not receive implementation summaries, old reports, server-start/build
 commands, or check-log text. QA/review can read current evidence files on demand.
+Review also receives the candidate's verification plan to reject missing UI targets
+or ineffective checks selected by implementation.
 Repair feedback strips stale evidence IDs; failed check excerpts keep only the
 last 12,000 characters per failed check. Review receives only the last relevant
 reviewer's findings, even if an intervening attempt failed before review. Summary
@@ -161,7 +160,7 @@ Workflow steps are not retried automatically: repeating terminal questions or
 file writes would be unsafe. Automatic run recovery is disabled for `default`
 because terminal callbacks do not survive process restarts. No workflow snapshot
 storage is configured yet. `sessionTimeoutMs` bounds the entire workflow, including
-exploration, inspection, confirmation, implementation, repairs, and publication.
+exploration, confirmation, implementation/setup, repairs, and publication.
 
 Ctrl+C/Escape and termination signals cancel with exit code 130. Startup failures,
 EOF, model/schema failures, persistence failures, and timeouts exit with code 1.
@@ -206,7 +205,7 @@ only after passing gates. See [delivery](delivery.md) for discovery and the
 initial provider's limits.
 
 Each agent owns its instructions, Mastra definition, and output contract in
-`agents/exploration.ts`, `agents/project.ts`, `agents/implementation.ts`, `agents/qa.ts`,
+`agents/exploration.ts`, `agents/implementation.ts`, `agents/qa.ts`,
 `agents/review.ts`, or `agents/summary.ts`. `agents/shared.ts` only shares delivery
 instructions and structured-output generation; `agents/model.ts` owns the common
 model transport configuration for all agents, including exploration and observation.
@@ -235,39 +234,48 @@ a custom command execution layer. See the
 
 ### Delivery code map
 
-| Module                                  | Responsibility                                                                                                                     |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `delivery/preparation.ts`               | Require a confirmed brief, report inspection blockers, validate the inferred plan, recheck the pinned base, and require isolation. |
-| `delivery/environment.ts`               | Acquire resources, expose a prepared run/current round, and clean up even after partial setup.                                     |
-| `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                                   |
-| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                                   |
-| `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                                      |
-| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                                                  |
-| `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                                        |
-| `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.                        |
-| `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                                                |
-| `delivery/finish.ts`, `pull-request.ts` | Local preview/result, automatic gated publication, and PR sections. GitHub side effects stay in its adapter.                       |
+| Module                                  | Responsibility                                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `delivery/preparation.ts`               | Require a confirmed brief, validate Git metadata, recheck the pinned base, and require isolation.               |
+| `delivery/environment.ts`               | Acquire resources, bind candidate verification plans to round resources, and clean up even after partial setup. |
+| `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                |
+| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                |
+| `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                   |
+| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                               |
+| `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                     |
+| `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.     |
+| `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                             |
+| `delivery/finish.ts`, `pull-request.ts` | Local preview/result, automatic gated publication, and PR sections. GitHub side effects stay in its adapter.    |
 
 Factory configuration (`FactoryConfig`) controls model transport, observation,
-router lifecycle, and the whole-run deadline. The inspected project plan (`Project`)
-controls approved repository setup, checks, scope, and QA targets. These are not
-interchangeable. For artifact compatibility, `input.json` still stores the project
-plan under its existing `config` key.
+router lifecycle, and the whole-run deadline. `Project` holds Git metadata,
+repository-wide non-protected change scope, network policy, and QA tool commands.
+Project sandboxes allow network access for dependency installation and verification.
+Their PATH prefers the factory's active Node installation over HOME-dependent
+version-manager shims while retaining a private run-owned HOME.
+Implementation owns setup and returns a `VerificationPlan` with actual checks and
+QA targets after implementing or scaffolding the app. Each round combines that
+candidate's plan with project settings as a `VerificationProject`; no commands or
+targets are required before implementation. `input.json` stores project settings
+under `config`; each implementation result in `state.json` stores its verification
+plan. Live resources remain outside serializable workflow state.
 
 ### Resource and state ownership
 
-- A run context is available only after exploration confirmation, inspection, resource setup, and
-  dependencies succeed. Operations fail explicitly if preparation is incomplete.
+- A run context is available after exploration confirmation and isolated resource
+  setup, even if the repository has no app yet. Implementation handles dependencies
+  and scaffolding. Operations fail explicitly if preparation is incomplete.
 - Resources are registered as soon as acquired. A static workspace owns its
   sandbox once construction succeeds; until then the environment retains cleanup
   ownership. The Git checkout and artifacts are retained, not deleted on cleanup.
-- Checks create a fresh round context with its round number, revision, evidence
-  recorder, and QA session. QA rejects a context for another round or revision.
+- Checks create a fresh round context with its round number, revision, candidate
+  verification plan, evidence recorder, and QA session. QA rejects a context for
+  another round or revision. Repairs cannot reuse old commands, targets, or evidence.
 - QA owns configured server handles and automation session names for that round.
   It closes sessions and stops project processes in `finally`, including partial
   server startup. Cleanup uses a separate 10-second signal and 8-second command
   timeout, even when the run is cancelled. Repeated close calls share completion.
-- Closing an environment aborts its setup lifetime. Late inspection/setup results
+- Closing an environment aborts its setup lifetime. Late base-validation/setup results
   cannot expose a ready run or acquire more live resources. Cleanup attempts all
   acquired resources even if QA cleanup fails.
 - `DeliveryState` contains only serializable brief/candidate/history/summary data.
@@ -284,8 +292,9 @@ Agents validate their structured results; workflow steps independently parse the
 again. QA/review policies validate criterion and evidence references. Trusted Git
 checks enforce approved paths and candidate immutability. Publication independently
 requires passing gates, a summary, an unchanged candidate, a matching GitHub base,
-and a metadata-only evidence commit. Repository inspection returns either a
-complete plan or explicit blockers. There are no post-exploration approvals;
+and a metadata-only evidence commit. Successful implementations must return a
+complete verification plan; genuine blockers return null verification. Missing
+app scaffolding is implementation work, not a prerequisite. There are no post-exploration approvals;
 repair budgets, deadlines, and uncertain-publication journaling still apply.
 
 Tests separate pure state/policy and lifecycle regressions from real Mastra/CLI

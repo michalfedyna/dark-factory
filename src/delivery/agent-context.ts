@@ -15,7 +15,7 @@ import type {
   Evidence,
   Finding,
 } from '../contracts/delivery.js';
-import type { Project } from '../contracts/project.js';
+import type { Project, VerificationProject } from '../contracts/project.js';
 import { currentRound } from './state.js';
 
 function repairFinding(finding: Finding): RepairFinding {
@@ -48,7 +48,7 @@ export function implementationContext(
   return {
     task: createIssueTask(state.brief),
     allowedPaths: project.allowedPaths,
-    checks: project.checks,
+    checks: previous?.implementation.verification?.checks ?? [],
     repair: previous
       ? {
           findings: previous.findings.map(repairFinding),
@@ -63,7 +63,7 @@ export function implementationContext(
 
 export function qaContext(
   state: DeliveryState,
-  project: Project,
+  project: VerificationProject,
   evidence: Evidence[],
 ): QaContext {
   const round = currentRound(state);
@@ -100,6 +100,8 @@ export function reviewContext(
 ): ReviewContext {
   const round = currentRound(state);
   if (!round.qa) throw new Error('Review context requires a QA report.');
+  if (!round.implementation.verification)
+    throw new Error('Review context requires a verification plan.');
   const previousReview = state.history
     .slice(0, -1)
     .findLast((previous) => previous.review !== null);
@@ -107,6 +109,7 @@ export function reviewContext(
     task: createIssueTask(state.brief),
     allowedPaths: project.allowedPaths,
     patch,
+    verification: round.implementation.verification,
     evidence: evidenceReferences(
       round.evidence.filter((record) => record.revision === round.revision),
     ),

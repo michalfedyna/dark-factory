@@ -3,6 +3,7 @@ import { runDefault } from '../src/factory/run.js';
 import type { DeliveryRound, Finding } from '../src/contracts/delivery.js';
 import { validateQa } from '../src/delivery/qa-policy.js';
 import { brief } from './fixtures/brief.js';
+import { implementation } from './fixtures/delivery.js';
 import {
   createWorkflowSetup as setup,
   qaPass,
@@ -159,6 +160,7 @@ describe('default workflow delivery stages', () => {
     operations.implement.mockResolvedValue({
       summary: 'Cannot proceed.',
       blockers: ['A required API contract is missing.'],
+      verification: null,
     });
     await expect(run()).resolves.toMatchObject({
       status: 'blocked',
@@ -168,6 +170,20 @@ describe('default workflow delivery stages', () => {
     expect(operations.capture).not.toHaveBeenCalled();
     expect(operations.checks).not.toHaveBeenCalled();
   });
+  test.each([null, { checks: [], targets: [] }])(
+    'successful implementation cannot skip verification: %j',
+    async (verification) => {
+      const { run, operations } = setup();
+      operations.implement.mockResolvedValue({
+        ...implementation,
+        verification,
+      });
+      await expect(run()).rejects.toThrow('Workflow failed');
+      expect(operations.capture).not.toHaveBeenCalled();
+      expect(operations.qa).not.toHaveBeenCalled();
+      expect(operations.finish).not.toHaveBeenCalled();
+    },
+  );
   test('an unchanged repair cannot pass solely because a reviewer changes its verdict', async () => {
     const { run, operations } = setup();
     operations.capture.mockResolvedValue({
@@ -192,10 +208,11 @@ describe('default workflow delivery stages', () => {
       findings: [finding('review')],
     });
     operations.implement
-      .mockResolvedValueOnce({ summary: 'First candidate.', blockers: [] })
+      .mockResolvedValueOnce({ ...implementation, summary: 'First candidate.' })
       .mockResolvedValueOnce({
         summary: 'Cannot repair within scope.',
         blockers: ['The API contract is missing.'],
+        verification: null,
       });
     await expect(run()).resolves.toMatchObject({
       status: 'blocked',
@@ -358,7 +375,7 @@ function passingRound(): DeliveryRound {
     round: 1,
     revision: 'revision',
     tree: 'tree',
-    implementation: { summary: 'Implemented.', blockers: [] },
+    implementation,
     evidence: [
       {
         id: 'test',

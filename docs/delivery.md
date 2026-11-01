@@ -1,8 +1,8 @@
 # Default end-to-end workflow
 
 ```text
-explore → confirm issue plan → inspect repository
-  → implement → snapshot → inferred checks → QA → independent review
+explore → confirm issue plan → prepare isolated checkout
+  → implement/setup/scaffold → snapshot → checks → QA → independent review
       ↑                                      │             │
       └──────── bounded in-scope repairs ──────┴─────────────┘
   → summary → push branch → draft GitHub PR
@@ -58,20 +58,26 @@ supported. Missing, unsupported, or ambiguous GitHub remotes keep a verified
 candidate local instead of inventing a publication target. Publication verifies
 that the remote base still matches the pinned local commit.
 
-A read-only Mastra inspection agent reads repository instructions, manifests,
-lockfiles, CI definitions, and relevant source to infer:
+There is no inspection agent or executable-plan prerequisite before implementation.
+Implementation reads instructions, manifests, lockfiles, CI, and source from the
+pinned checkout, installs dependencies, and scaffolds the app when the approved
+task needs it. An initial commit containing only an empty README is sufficient;
+the user does not need to prepare an app first. New apps need a manifest, lockfile,
+development and verification scripts, and ignores for dependency/build outputs.
 
-- Package manager and dependency/setup commands.
-- Meaningful deterministic checks, with at least one required check.
-- Source paths needed for the approved brief.
-- Web servers/URLs or native app identifiers and build/install commands.
-- Whether setup or verification requires network access.
+Every successful implementation returns `verification`, validated by
+[`src/contracts/project.ts`](../src/contracts/project.ts), containing at least one
+meaningful deterministic check and all required web/native QA targets. Commands
+must match the actual implemented project, including newly created scripts. The
+controller captures the candidate before executing those checks and starting QA;
+agent claims are not verification evidence. Each repair supplies its own fresh
+plan. Only non-UI work may omit targets. Genuine external blockers return null
+verification and specific reasons; missing scaffolding is implementation work.
 
-The internal execution plan is validated by [`src/contracts/project.ts`](../src/contracts/project.ts)
-and used automatically. No project code runs during inspection. Necessary facts
-that the repository cannot establish become blockers, never user questions;
-the agent must not invent commands or skip required UI verification. It may read working-tree documentation,
-but implementation always starts at the pinned committed base.
+Implementation may change any non-protected repository path within the confirmed
+brief. Review independently checks scope. Native-isolated project sandboxes allow
+network access for scaffolding, dependency installation, and verification; no
+factory API key or GitHub credential environment is passed to project commands.
 
 Web QA uses `agent-browser` from PATH; native iOS/Android QA uses `agent-device`.
 Web servers must use a dedicated strict port. Native preparation must build and
@@ -93,6 +99,8 @@ No factory API key or GitHub credential environment is passed to project command
   receives filesystem/sandbox tools. QA and review have read-only filesystem
   providers. Only QA gets constrained browser/device operations; neither gets a
   general shell or source-write tool. Summary gets no repository or publish tools.
+  QA and review must reject missing required UI targets; review also inspects the
+  implementation's verification plan for irrelevant, no-op, or weakened checks.
   Implementers receive check-log excerpts for repairs; QA/review can read current
   evidence and screenshot images through their read-only filesystem provider.
   Web and native tools are defined in separate files and exposed as `agent_browser`
@@ -116,9 +124,9 @@ No factory API key or GitHub credential environment is passed to project command
 
 ## Publication and artifacts
 
-After exploration confirmation and repository inspection, the workflow creates its private run directory at
+After exploration confirmation and pinned-base validation, the workflow creates its private run directory at
 `<git-root>/.darkfactory/runs/<run-id>/`. No separate issue files are created.
-Run directories retain `input.json`, `state.json`, round command records, PNG
+Run directories retain `input.json`, `state.json` (including each candidate's verification plan), round command records, PNG
 screenshots, a PR preview, the isolated checkout, and `result.json`. They are
 private local artifacts. Git metadata is kept outside the agent's filesystem.
 Sandboxes/background processes and run-owned browser/device sessions are stopped

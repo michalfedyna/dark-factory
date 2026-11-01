@@ -1,5 +1,5 @@
 import {
-  projectPlanSchema,
+  verificationPlanSchema,
   projectSchema,
 } from '../../src/contracts/project.js';
 import type { DeliveryState } from '../../src/contracts/delivery.js';
@@ -18,7 +18,7 @@ export function candidateState(): DeliveryState {
         round: 1,
         revision: 'revision',
         tree: 'tree',
-        implementation: { summary: 'Implemented.', blockers: [] },
+        implementation: structuredClone(implementation),
         evidence: [
           {
             id: 'test',
@@ -38,12 +38,7 @@ export function candidateState(): DeliveryState {
   };
 }
 
-export const projectPlan = projectSchema.parse({
-  repository: '.',
-  baseBranch: 'main',
-  githubRepo: 'example/project',
-  baseRevision: 'base',
-  allowedPaths: ['feature.txt'],
+export const verificationPlan = verificationPlanSchema.parse({
   checks: [
     {
       id: 'test',
@@ -56,9 +51,23 @@ export const projectPlan = projectSchema.parse({
   ],
 });
 
-export const uiProjectPlan = projectPlanSchema.parse({
-  allowedPaths: projectPlan.allowedPaths,
-  allowNetwork: true,
+export const implementation = {
+  summary: 'Implemented.',
+  blockers: [],
+  verification: verificationPlan,
+};
+
+export const projectPlan = {
+  ...projectSchema.parse({
+    repository: '.',
+    baseBranch: 'main',
+    githubRepo: 'example/project',
+    baseRevision: 'base',
+  }),
+  ...verificationPlan,
+};
+
+export const uiProjectPlan = verificationPlanSchema.parse({
   checks: [
     {
       id: 'test',

@@ -5,7 +5,7 @@ import { projectSchema } from '../contracts/project.js';
 import { readBase } from '../integrations/git/repository.js';
 import type { DeliveryOptions } from './context.js';
 
-/** Validate inspection before acquiring mutable resources. */
+/** Validate the approved brief and pinned base before acquiring resources. */
 export async function prepareProject(
   options: DeliveryOptions,
   brief: IssueBrief,
@@ -13,21 +13,10 @@ export async function prepareProject(
 ) {
   if (brief.readiness !== 'ready' || !brief.confirmedByUser)
     throw new Error('Delivery requires a confirmed, ready brief.');
-  options.progress('Inspecting repository');
-  const inspection = await options.inspect(brief, signal);
-  signal.throwIfAborted();
-  if ('blockers' in inspection) {
-    (options.diagnostic ?? options.progress)(
-      `Repository inspection blocked: ${inspection.blockers.join(' ')}`,
-    );
-    throw new Error('Repository inspection blocked.');
-  }
-  const project = projectSchema.parse(inspection);
+  const project = projectSchema.parse(options.repository);
   const base = await readBase(project.repository, project.baseBranch, signal);
   if (base !== project.baseRevision)
-    throw new Error(
-      'The base branch changed during inspection. Start a new run.',
-    );
+    throw new Error('The base branch changed since startup. Start a new run.');
   const detection = z
     .object({
       available: z.boolean(),

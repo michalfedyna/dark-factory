@@ -89,7 +89,7 @@ const server = createServer((request, response) => {
     }
     if (
       mode.startsWith('observer') &&
-      (role === 'exploration' || role === 'inspection')
+      (role === 'exploration' || role === 'implementation')
     ) {
       await new Promise((resolve) => {
         setTimeout(resolve, 1_500);

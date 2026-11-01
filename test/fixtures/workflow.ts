@@ -8,6 +8,7 @@ import { validateQa } from '../../src/delivery/qa-policy.js';
 import type { DeliveryOperations } from '../../src/delivery/operations.js';
 import { createDefaultWorkflow } from '../../src/workflows/default.js';
 import { brief } from './brief.js';
+import { verificationPlan } from './delivery.js';
 
 const factories: Mastra[] = [];
 afterEach(async () => {
@@ -49,6 +50,7 @@ export function createWorkflowSetup(
     implement: vi.fn<DeliveryOperations['implement']>().mockResolvedValue({
       summary: 'Implemented CSV export and tests.',
       blockers: [],
+      verification: verificationPlan,
     }),
     capture: vi.fn<DeliveryOperations['capture']>().mockImplementation(() => {
       captureCount++;

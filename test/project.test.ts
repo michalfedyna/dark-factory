@@ -2,10 +2,8 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import {
-  projectInspectionSchema,
-  projectPlanSchema,
-} from '../src/contracts/project.js';
+import { verificationPlanSchema } from '../src/contracts/project.js';
+import { implementationSchema } from '../src/contracts/delivery.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import { inspectRepository } from '../src/integrations/git/inspect.js';
 import { projectPlan } from './fixtures/delivery.js';
@@ -70,27 +68,35 @@ test.each([
   },
 );
 
-test('inspection returns either an executable plan or explicit blockers', () => {
-  const plan = projectPlanSchema.parse({
-    allowedPaths: projectPlan.allowedPaths,
+test('implementation returns real verification commands or a genuine blocker', () => {
+  const verification = verificationPlanSchema.parse({
     checks: projectPlan.checks,
   });
   expect(
-    projectInspectionSchema.safeParse({ plan, blockers: [] }).success,
+    implementationSchema.safeParse({
+      summary: 'Implemented.',
+      verification,
+      blockers: [],
+    }).success,
   ).toBe(true);
   expect(
-    projectInspectionSchema.safeParse({
-      plan: null,
+    implementationSchema.safeParse({
+      summary: 'Blocked.',
+      verification: null,
       blockers: ['Missing app identifier.'],
     }).success,
   ).toBe(true);
   for (const result of [
-    { plan: null, blockers: [] },
-    { plan, blockers: ['Missing app identifier.'] },
-    { plan: null, blockers: [' '] },
-    { plan: { ...plan, checks: [] }, blockers: [] },
+    { verification: null, blockers: [] },
+    { verification, blockers: ['Missing app identifier.'] },
+    { verification: null, blockers: [' '] },
+    { verification: { ...verification, checks: [] }, blockers: [] },
+    { blockers: [] },
   ])
-    expect(projectInspectionSchema.safeParse(result).success).toBe(false);
+    expect(
+      implementationSchema.safeParse({ summary: 'Implemented.', ...result })
+        .success,
+    ).toBe(false);
 });
 
 test('does not invent a publication target for a repository without a remote', async () => {
@@ -116,19 +122,16 @@ test('rejects a detached checkout instead of guessing its base branch', async ()
 test.each([
   { checks: [] },
   { checks: [projectPlan.checks[0], projectPlan.checks[0]] },
-  { allowedPaths: ['../outside'] },
-  { allowedPaths: ['.git'] },
   {
     targets: [
       { id: 'ios', kind: 'mobile', platform: 'ios', app: 'com.example.app' },
     ],
   },
 ])(
-  'rejects an inferred plan with unsafe scope or missing verification: %j',
+  'rejects implementation verification with missing checks or target details: %j',
   (override) => {
     expect(
-      projectPlanSchema.safeParse({
-        allowedPaths: ['feature.txt'],
+      verificationPlanSchema.safeParse({
         checks: projectPlan.checks,
         ...override,
       }).success,

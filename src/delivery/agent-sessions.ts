@@ -62,7 +62,7 @@ export function createDeliveryAgents(options: DeliveryOptions) {
       try {
         await round.qaSession.start(signal);
         const tools = createQaTools({
-          project: run.project,
+          project: round.project,
           automationSandbox: run.automationSandbox,
           evidence: round.evidence,
           session: `${run.runId}-r${round.round}`,
@@ -70,7 +70,7 @@ export function createDeliveryAgents(options: DeliveryOptions) {
           signal,
         });
         const report = await qa({
-          context: qaContext(state, run.project, round.evidence.records),
+          context: qaContext(state, round.project, round.evidence.records),
           workspace: run.verificationWorkspace,
           tools,
           signal,

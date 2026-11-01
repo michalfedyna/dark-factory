@@ -1,12 +1,12 @@
 import type { LocalSandbox } from '@mastra/core/workspace';
 import type { DeliveryRound } from '../contracts/delivery.js';
-import type { Project } from '../contracts/project.js';
+import type { VerificationPlan } from '../contracts/project.js';
 import type { Observe } from '../contracts/progress.js';
 import type { RoundResources, RunResources } from './context.js';
 
-export async function executeProjectCommand(
+async function executeProjectCommand(
   projectSandbox: LocalSandbox,
-  command: Project['setup'][number],
+  command: Omit<VerificationPlan['checks'][number], 'id'>,
   signal: AbortSignal,
 ) {
   signal.throwIfAborted();
@@ -31,8 +31,8 @@ export async function runChecks(
   signal: AbortSignal,
   observe?: Observe,
 ): Promise<DeliveryRound> {
-  const { project, projectSandbox, repository } = run;
-  const { evidence } = resources;
+  const { projectSandbox, repository } = run;
+  const { project, evidence } = resources;
   const findings = [...round.findings];
   const checks = [
     ...project.checks,

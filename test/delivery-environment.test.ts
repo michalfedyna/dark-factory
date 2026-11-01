@@ -18,7 +18,7 @@ import {
   readBase,
 } from '../src/integrations/git/repository.js';
 import { brief } from './fixtures/brief.js';
-import { projectPlan } from './fixtures/delivery.js';
+import { implementation, projectPlan } from './fixtures/delivery.js';
 
 vi.mock('../src/integrations/git/repository.js');
 const projectCommand = vi.hoisted(() =>
@@ -115,29 +115,38 @@ async function setup(project = projectPlan) {
   directories.push(source);
   const controller = new AbortController();
   const options: DeliveryOptions = {
-    inspect: vi.fn().mockResolvedValue({ ...project, repository: source }),
+    repository: {
+      repository: source,
+      baseBranch: project.baseBranch,
+      baseRevision: project.baseRevision,
+      githubRepo: project.githubRepo,
+    },
     model: factoryConfigSchema.parse({}).model,
     apiKey: 'private-key',
     runId: 'run',
     signal: controller.signal,
     progress: vi.fn(),
-    diagnostic: vi.fn(),
   };
   const environment = createDeliveryEnvironment(options);
   environments.push(environment);
-  return { environment, options, controller, source };
-}
-
-function candidate(round = 1, revision = 'revision'): DeliveryRound {
   return {
-    round,
-    revision,
-    tree: 'tree',
-    implementation: { summary: 'Implemented.', blockers: [] },
-    evidence: [],
-    qa: null,
-    review: null,
-    findings: [],
+    environment,
+    options,
+    controller,
+    source,
+    candidate: (round = 1, revision = 'revision'): DeliveryRound => ({
+      round,
+      revision,
+      tree: 'tree',
+      implementation: {
+        ...implementation,
+        verification: { checks: project.checks, targets: project.targets },
+      },
+      evidence: [],
+      qa: null,
+      review: null,
+      findings: [],
+    }),
   };
 }
 
@@ -152,21 +161,20 @@ test('operations reject use before preparation and close is safe before setup', 
 });
 
 test('partial setup failure destroys every acquired resource and never exposes a ready run', async () => {
-  const { environment, options, source } = await setup({
-    ...projectPlan,
-    setup: [{ command: 'install', args: [], timeoutMs: 1_000 }],
-  });
-  projectCommand.mockResolvedValue({
-    exitCode: 1,
-    stdout: '',
-    stderr: 'failed',
-    success: false,
-    executionTimeMs: 0,
-  });
+  const { environment, options } = await setup();
+  vi.mocked(createRunRepository).mockImplementationOnce(
+    async (_source, directory) => {
+      const path = join(directory, 'repository');
+      await mkdir(path);
+      // Fail the later browser-config write after acquiring the live resources.
+      await mkdir(join(directory, 'browser.json'));
+      return { path, git: vi.fn(), capture: vi.fn(), assertUnchanged: vi.fn() };
+    },
+  );
   const destroySandbox = vi.spyOn(LocalSandbox.prototype, 'destroy');
   const destroyWorkspace = vi.spyOn(Workspace.prototype, 'destroy');
   await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
-    'setup failed',
+    'directory',
   );
   expect(() => environment.requireRun()).toThrow('not been prepared');
   await environment.close();
@@ -175,71 +183,113 @@ test('partial setup failure destroys every acquired resource and never exposes a
   // Mastra disposes a pending static sandbox without invoking its destroy hook.
   expect(sandboxInstances[0]?.status).toBe('destroyed');
   expect(destroyWorkspace).toHaveBeenCalledTimes(2);
-  expect(
-    JSON.parse(
-      await readFile(
-        join(source, '.darkfactory/runs/run/setup-0.json'),
-        'utf8',
-      ),
-    ),
-  ).toMatchObject({ exitCode: 1 });
 });
 
-test('closing during inspection prevents late setup from acquiring resources', async () => {
+test('closing during base validation prevents late setup from acquiring resources', async () => {
   const { environment, options } = await setup();
-  const inspection = deferred<typeof projectPlan>();
-  options.inspect = () => inspection.promise;
+  const base = deferred<string>();
+  vi.mocked(readBase).mockReturnValueOnce(base.promise);
   const preparing = environment.prepare(brief, options.signal);
   const rejected = expect(preparing).rejects.toThrow('closed');
   await environment.close();
-  inspection.resolve(projectPlan);
+  base.resolve('base');
   await rejected;
   expect(createRunRepository).not.toHaveBeenCalled();
 });
 
-test('inspection blockers stop before mutable resources without asking the user', async () => {
+test('preparation needs only Git metadata, not an existing executable app', async () => {
   const { environment, options, source } = await setup();
-  options.inspect = () =>
-    Promise.resolve({ blockers: ['Missing native app identifier.'] });
+  await expect(environment.prepare(brief, options.signal)).resolves.toBe(
+    'base',
+  );
+  expect(createRunRepository).toHaveBeenCalledWith(
+    source,
+    expect.any(String),
+    'base',
+    ['.'],
+    expect.any(AbortSignal),
+  );
+  expect(sandboxInstances).toHaveLength(3);
+  expect(projectCommand).not.toHaveBeenCalled();
+  const run = environment.requireRun();
+  expect(run.project.allowNetwork).toBe(true);
+  expect(run.project).not.toHaveProperty('checks');
+  expect(
+    JSON.parse(
+      await readFile(join(source, '.darkfactory/runs/run/input.json'), 'utf8'),
+    ),
+  ).toMatchObject({ brief, baseRevision: 'base' });
+});
+
+test('a moved base still blocks before acquiring mutable resources', async () => {
+  const { environment, options } = await setup();
+  vi.mocked(readBase).mockResolvedValueOnce('new-base');
   await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
-    'Repository inspection blocked',
-  );
-  expect(options.diagnostic).toHaveBeenCalledWith(
-    'Repository inspection blocked: Missing native app identifier.',
-  );
-  expect(options.progress).toHaveBeenCalledExactlyOnceWith(
-    'Inspecting repository',
+    'base branch changed',
   );
   expect(createRunRepository).not.toHaveBeenCalled();
   expect(sandboxInstances).toHaveLength(0);
-  await expect(
-    readFile(join(source, '.darkfactory/runs/run/input.json')),
-  ).rejects.toThrow();
 });
 
-test('cancellation during dependency setup cannot expose a late ready environment', async () => {
-  const { environment, options, controller } = await setup({
-    ...projectPlan,
-    setup: [{ command: 'install', args: [], timeoutMs: 1_000 }],
+test('native isolation is still required before implementation can run', async () => {
+  const { environment, options } = await setup();
+  vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValueOnce({
+    available: false,
+    backend: 'none',
+    message: 'Unavailable',
   });
+  await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
+    'Native sandbox isolation is unavailable',
+  );
+  expect(createRunRepository).not.toHaveBeenCalled();
+});
+
+test('each candidate owns its check commands and QA targets without changing an earlier round', async () => {
+  const { environment, options, candidate } = await setup();
+  await environment.prepare(brief, options.signal);
+  const first = environment.beginRound(candidate());
+  const repaired = candidate(2, 'repaired');
+  repaired.implementation.verification = {
+    checks: [
+      { id: 'updated-test', command: 'npm', args: ['test'], timeoutMs: 1_000 },
+    ],
+    targets: [webTarget],
+  };
+  const second = environment.beginRound(repaired);
+  expect(first.project.checks).toEqual(projectPlan.checks);
+  expect(first.project.targets).toEqual([]);
+  expect(second.project.checks[0]?.id).toBe('updated-test');
+  expect(second.project.targets).toEqual([webTarget]);
+  expect(() => environment.requireRound(candidate())).toThrow(
+    'current candidate',
+  );
+});
+
+test('cancellation during checkout creation cannot expose a late ready environment', async () => {
+  const { environment, options, controller } = await setup();
   const started = deferred<void>();
-  const command = deferred<CommandResult>();
-  projectCommand.mockImplementation(() => {
+  const checkout = deferred<Awaited<ReturnType<typeof createRunRepository>>>();
+  vi.mocked(createRunRepository).mockImplementationOnce(() => {
     started.resolve();
-    return command.promise;
+    return checkout.promise;
   });
   const preparing = environment.prepare(brief, options.signal);
   const rejected = expect(preparing).rejects.toThrow('Cancelled');
   await started.promise;
   controller.abort(new Error('Cancelled'));
   await environment.close();
-  command.resolve(commandPassed);
+  checkout.resolve({
+    path: 'unused',
+    git: vi.fn(),
+    capture: vi.fn(),
+    assertUnchanged: vi.fn(),
+  });
   await rejected;
   expect(() => environment.requireRun()).toThrow('closed');
 });
 
 test('round resources cannot be reused for another revision or repair round', async () => {
-  const { environment, options } = await setup();
+  const { environment, options, candidate } = await setup();
   await environment.prepare(brief, options.signal);
   expect(() => environment.requireRound(candidate())).toThrow(
     'Run checks first',
@@ -261,7 +311,7 @@ test('round resources cannot be reused for another revision or repair round', as
 });
 
 test('QA failure closes automation with a fresh signal and stops servers exactly once', async () => {
-  const { environment, options, controller } = await setup({
+  const { environment, options, controller, candidate } = await setup({
     ...projectPlan,
     targets: [webTarget, { ...webTarget, id: 'second' }],
   });
@@ -298,7 +348,7 @@ test('QA failure closes automation with a fresh signal and stops servers exactly
 });
 
 test('a server returned after session closure is killed and cannot continue QA', async () => {
-  const { environment, options } = await setup({
+  const { environment, options, candidate } = await setup({
     ...projectPlan,
     targets: [webTarget],
   });
@@ -324,7 +374,7 @@ test('a server returned after session closure is killed and cannot continue QA',
 });
 
 test('QA cleanup failure still attempts every acquired environment resource', async () => {
-  const { environment, options } = await setup({
+  const { environment, options, candidate } = await setup({
     ...projectPlan,
     targets: [webTarget],
   });

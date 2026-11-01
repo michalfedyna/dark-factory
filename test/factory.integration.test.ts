@@ -22,9 +22,8 @@ async function factory(
     'package.json': JSON.stringify({ scripts: { test: 'node check.cjs' } }),
   });
   await writeFile(
-    join(directory, 'project-plan.json'),
+    join(directory, 'verification-plan.json'),
     JSON.stringify({
-      allowedPaths: projectPlan.allowedPaths,
       checks: projectPlan.checks,
       targets: [],
     }),
@@ -73,7 +72,7 @@ test.each(['chat', 'responses'])(
       run.child.stdin.end('Start\n');
       expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain(
-        'Observer: Current delivery stage: Inspecting repository.',
+        'Observer: Current delivery stage: Implementing (round 1).',
       );
       const contexts = (
         await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
@@ -92,7 +91,7 @@ test.each(['chat', 'responses'])(
       expect(
         contexts.findIndex(({ role }) => role === 'observer'),
       ).toBeGreaterThan(
-        contexts.findIndex(({ role }) => role === 'inspection'),
+        contexts.findIndex(({ role }) => role === 'implementation'),
       );
       for (const { payload } of observations) {
         expect(payload.stage).not.toBe('Exploring');
@@ -161,7 +160,7 @@ test.each(['chat', 'responses'])(
       expect(run.stdout()).toBe('');
       expect(run.stderr()).toContain('Which export format?');
       expect(run.stderr()).toContain('Start implementation?');
-      expect(run.stderr()).not.toContain('Inspecting repository');
+      expect(run.stderr()).not.toContain('Preparing delivery');
       await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
       expect(run.stdout()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('test-key');
@@ -210,19 +209,27 @@ test('EOF fails without inventing an answer or preparing a repository', async ()
 }, 20_000);
 
 test.each(['chat', 'responses'])(
-  'inspection reports a blocker without prompting after plan confirmation (%s)',
+  'implementation reports genuine blockers without prompting after plan confirmation (%s)',
   async (api) => {
-    const run = await factory(api, 'Export issues', 'inspection-blocked');
+    const run = await factory(api, 'Export issues', 'implementation-blocked');
     try {
       run.child.stdin.end('CSV\nStart\n');
       expect(await run.exit, run.stderr()).toEqual([1, null]);
-      expect(run.stderr()).toContain(
-        'Repository inspection blocked: Missing native app identifier.',
-      );
+      expect(
+        deliveryResultSchema.parse(JSON.parse(run.stdout())),
+      ).toMatchObject({
+        status: 'blocked',
+        reason: 'Missing external API contract.',
+      });
       expect(run.stderr()).not.toContain('Input ended');
       expect(run.stderr()).not.toContain('Implement this brief?');
-      expect(run.stdout()).toBe('');
-      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
+      expect(run.stderr()).toContain('Implementing');
+      const contexts = await readFile(
+        join(run.directory, 'agent-contexts.jsonl'),
+        'utf8',
+      );
+      expect(contexts).not.toContain('"role":"inspection"');
+      expect(contexts).not.toContain('"role":"qa"');
       await run.assertStopped();
     } finally {
       await run.clean();

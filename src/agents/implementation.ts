@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import type { Workspace } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
 import { implementationSchema } from '../contracts/delivery.js';
-import type { Project } from '../contracts/project.js';
+import type { Project, VerificationPlan } from '../contracts/project.js';
 import { createModelConfig } from './model.js';
 import {
   deliveryInstructions,
@@ -16,6 +16,18 @@ const instructions = `${deliveryInstructions}
 Implement the supplied task with focused source changes and tests. Read the repository instructions and relevant files first.
 You own implementation, not approval. Use the workspace filesystem and sandbox tools.
 
+Repository setup:
+- Inspect the pinned checkout and choose implementation details within the approved scope. Install dependencies and scaffold the app when needed.
+- An empty repository or missing manifest, lockfile, scripts, or source is implementation work, not a blocker or a request for the user to scaffold it.
+- Preserve existing conventions. For a new app, create its manifest, lockfile, runnable development and meaningful verification scripts. Ignore dependency/build outputs before handing off.
+
+Verification handoff:
+- Return verification for this candidate: at least one meaningful deterministic check and every web/native target required by the task.
+- Use actual commands and app identifiers from the project you implemented, not no-op checks or an unrelated server/app. Commands run at the repository root; use directory options for nested apps.
+- Web targets need strict-port start commands and matching URLs. Native targets need build/install commands. Require screenshots unless inappropriate; omit targets only for non-UI work.
+- The controller captures the candidate, then runs checks and starts QA targets independently. Return an updated plan on every successful repair; return verification null only with a genuine blocker.
+
+Boundaries and repairs:
 - Do not run Git, publish, modify factory artifacts, or access anything outside this run's repository. Respect allowedPaths.
 - When repair feedback is supplied, address its findings, failed criterion notes, and failed check logs. QA and review will independently recheck the entire new candidate.
 - Assumptions are unverified, not requirements. Report a blocker if a necessary assumption cannot be established.
@@ -33,7 +45,7 @@ export interface FailedCheckLog {
 export interface ImplementationContext {
   task: IssueTask;
   allowedPaths: Project['allowedPaths'];
-  checks: Project['checks'];
+  checks: VerificationPlan['checks'];
   repair: {
     findings: RepairFinding[];
     failedCriteria: { id: string; notes: string }[];

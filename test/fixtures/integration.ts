@@ -15,7 +15,7 @@ import { expect } from 'vitest';
 import { hostCommand } from '../../src/integrations/git/command.js';
 import { brief } from './brief.js';
 
-async function availablePort(): Promise<number> {
+export async function availablePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', resolve);

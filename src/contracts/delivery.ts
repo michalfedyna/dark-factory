@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { issueBriefSchema } from './issue.js';
+import { verificationPlanSchema } from './project.js';
 
 const text = z.string().trim().min(1).max(16_000);
 const findingSchema = z.strictObject({
@@ -10,10 +11,19 @@ const findingSchema = z.strictObject({
   criterionId: text.nullable(),
   evidenceIds: z.array(text),
 });
-export const implementationSchema = z.strictObject({
-  summary: text,
-  blockers: z.array(text),
-});
+export const implementationSchema = z
+  .strictObject({
+    summary: text,
+    blockers: z.array(text),
+    verification: verificationPlanSchema.nullable(),
+  })
+  .refine(
+    (result) =>
+      result.blockers.length
+        ? result.verification === null
+        : result.verification !== null,
+    'Successful implementation requires verification commands and targets; blocked implementation returns null verification.',
+  );
 export const qaSchema = z.strictObject({
   verdict: z.enum(['pass', 'changes-requested', 'blocked']),
   criteria: z

@@ -68,12 +68,12 @@ test('issue tasks keep approved work and constraints, not exploration bookkeepin
   });
 });
 
-test('initial implementation receives only its task, allowed paths and check commands', () => {
+test('initial implementation receives its task and repository scope without requiring existing commands', () => {
   const state = { ...candidateState(), round: 0, history: [] };
   expect(implementationContext(state, projectPlan, [])).toEqual({
     task: createIssueTask(state.brief),
     allowedPaths: projectPlan.allowedPaths,
-    checks: projectPlan.checks,
+    checks: [],
     repair: null,
   });
 });
@@ -196,6 +196,7 @@ test('review receives the patch, current evidence and only the last relevant rev
     task: createIssueTask(state.brief),
     allowedPaths: projectPlan.allowedPaths,
     patch: 'Current patch.',
+    verification: current.implementation.verification,
     evidence: [
       {
         id: 'test',

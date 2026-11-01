@@ -12,27 +12,8 @@ const targetOptions = {
   screenshots: z.boolean().default(true),
 };
 
-export const projectPlanSchema = z
+export const verificationPlanSchema = z
   .strictObject({
-    allowNetwork: z.boolean().default(false),
-    allowedPaths: z
-      .array(
-        z
-          .string()
-          .trim()
-          .min(1)
-          .refine(
-            (path) =>
-              path === '.' ||
-              (!path.startsWith('/') &&
-                !path.includes('\\') &&
-                path.split('/').every((part) => part !== '..' && part !== '') &&
-                !/^\.(git|darkfactory)(\/|$)/.test(path)),
-            'Use a relative file/directory path without traversal or reserved directories.',
-          ),
-      )
-      .min(1),
-    setup: z.array(command).default([]),
     checks: z.array(command.extend({ id: name })).min(1),
     targets: z
       .array(
@@ -67,7 +48,7 @@ export const projectPlanSchema = z
     }
   });
 
-export const projectSchema = projectPlanSchema.safeExtend({
+export const projectSchema = z.strictObject({
   repository: z.string().trim().min(1),
   baseBranch: z.string().trim().min(1),
   baseRevision: z.string().trim().min(1),
@@ -77,18 +58,11 @@ export const projectSchema = projectPlanSchema.safeExtend({
     .nullable(),
   browserCommand: z.string().trim().min(1).default('agent-browser'),
   deviceCommand: z.string().trim().min(1).default('agent-device'),
+  // Implementation may need to create the entire app and install dependencies.
+  allowedPaths: z.tuple([z.literal('.')]).default(['.']),
+  allowNetwork: z.boolean().default(true),
 });
 
-export const projectInspectionSchema = z
-  .strictObject({
-    plan: projectPlanSchema.nullable(),
-    blockers: z.array(z.string().trim().min(1)),
-  })
-  .refine(
-    (result) =>
-      result.plan ? result.blockers.length === 0 : result.blockers.length > 0,
-    'Return either a complete plan with no blockers or null with specific blockers.',
-  );
-
 export type Project = z.infer<typeof projectSchema>;
-export type ProjectInspection = Project | { blockers: string[] };
+export type VerificationPlan = z.infer<typeof verificationPlanSchema>;
+export type VerificationProject = Project & VerificationPlan;

@@ -11,7 +11,7 @@ import { publishPullRequest } from '../src/integrations/github/publish.js';
 import { renderPullRequest } from '../src/delivery/pull-request.js';
 import type { DeliveryState } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
-import { projectPlan, png } from './fixtures/delivery.js';
+import { implementation, projectPlan, png } from './fixtures/delivery.js';
 
 const external = vi.hoisted(() => ({ fail: false, base: '' }));
 vi.mock('../src/integrations/git/command.js', async (importOriginal) => {
@@ -99,7 +99,7 @@ async function setup() {
       {
         round: 1,
         ...candidate,
-        implementation: { summary: 'Implemented.', blockers: [] },
+        implementation,
         evidence: [
           {
             id: 'r1-e1',

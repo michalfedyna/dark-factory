@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import {
   LocalFilesystem,
   LocalSandbox,
@@ -7,9 +7,9 @@ import {
 } from '@mastra/core/workspace';
 import type { DeliveryRound } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
+import { verificationPlanSchema } from '../contracts/project.js';
 import { createRunRepository } from '../integrations/git/repository.js';
 import { createRunArtifacts } from './artifacts.js';
-import { executeProjectCommand } from './checks.js';
 import type {
   DeliveryOptions,
   RoundResources,
@@ -52,6 +52,10 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
     },
     beginRound: (candidate: DeliveryRound): RoundResources => {
       const run = requireRun();
+      const project = {
+        ...run.project,
+        ...verificationPlanSchema.parse(candidate.implementation.verification),
+      };
       const evidence = createEvidence(
         join(run.directory, `round-${candidate.round}`),
         candidate.revision,
@@ -61,8 +65,9 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       round = {
         round: candidate.round,
         revision: candidate.revision,
+        project,
         evidence,
-        qaSession: createQaSession(run, candidate.round),
+        qaSession: createQaSession(run, project, candidate.round),
       };
       return round;
     },
@@ -113,7 +118,14 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       const projectSandboxOptions = {
         workingDirectory: repository.path,
         isolation,
-        env: { HOME: home, CI: '1' },
+        env: {
+          HOME: home,
+          CI: '1',
+          // Version-manager shims may require the host HOME; prefer this Node installation.
+          PATH: [dirname(process.execPath), process.env.PATH]
+            .filter(Boolean)
+            .join(delimiter),
+        },
         nativeSandbox: {
           allowNetwork: project.allowNetwork,
           readWritePaths: [home],
@@ -164,17 +176,6 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         automationSandbox,
         browserConfig,
       };
-      for (const [index, setup] of project.setup.entries()) {
-        options.progress('Preparing dependencies');
-        const result = await executeProjectCommand(
-          projectSandbox,
-          setup,
-          signal,
-        );
-        await artifacts.setup(index, result);
-        if (result.exitCode !== 0)
-          throw new Error(`Repository setup failed. See ${directory}.`);
-      }
       signal.throwIfAborted();
       run = prepared;
       return base;

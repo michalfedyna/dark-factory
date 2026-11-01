@@ -1,6 +1,5 @@
 import { Mastra } from '@mastra/core/mastra';
 import { createExploration } from '../agents/exploration.js';
-import { createProjectInspection } from '../agents/project.js';
 import { createObserver } from '../agents/observer.js';
 import type { FactoryConfig } from '../config/schema.js';
 import type { Ask } from '../contracts/interaction.js';
@@ -49,7 +48,6 @@ export async function startFactory(
         ask: Ask,
         progress: (message: string) => void,
         summary: (message: string) => void = progress,
-        diagnostic: (message: string) => void = progress,
       ) => {
         let observer: ReturnType<typeof createProgressObserver> | undefined;
         const observe: Observe = (activity) => observer?.observe(activity);
@@ -79,18 +77,12 @@ export async function startFactory(
             },
             runtime: (runId, signal) =>
               createDeliveryRuntime({
-                inspect: createProjectInspection(
-                  config.model,
-                  apiKey,
-                  repository,
-                  observe,
-                ),
+                repository,
                 model: config.model,
                 apiKey,
                 runId,
                 signal,
                 progress: report,
-                diagnostic,
                 observe,
               }),
           });

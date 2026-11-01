@@ -142,12 +142,12 @@ test('run repositories do not inherit a Git hook index or repository environment
 test('a confirmed brief prepares delivery without a user interaction callback', async () => {
   const { source, base } = await setup();
   const runtime = createDeliveryRuntime({
-    inspect: () =>
-      Promise.resolve({
-        ...projectPlan,
-        repository: source,
-        baseRevision: base,
-      }),
+    repository: {
+      repository: source,
+      baseBranch: projectPlan.baseBranch,
+      baseRevision: base,
+      githubRepo: projectPlan.githubRepo,
+    },
     model: factoryConfigSchema.parse({}).model,
     apiKey: 'not-for-project-commands',
     runId: 'automatic',
@@ -169,9 +169,13 @@ test('a confirmed brief prepares delivery without a user interaction callback', 
 });
 
 test('unconfirmed briefs cannot authorize delivery even through a direct runtime call', async () => {
-  const inspect = vi.fn().mockResolvedValue(projectPlan);
   const runtime = createDeliveryRuntime({
-    inspect,
+    repository: {
+      repository: projectPlan.repository,
+      baseBranch: projectPlan.baseBranch,
+      baseRevision: projectPlan.baseRevision,
+      githubRepo: projectPlan.githubRepo,
+    },
     model: factoryConfigSchema.parse({}).model,
     apiKey: 'private-key',
     runId: 'unconfirmed',
@@ -185,7 +189,6 @@ test('unconfirmed briefs cannot authorize delivery even through a direct runtime
         signal,
       ),
     ).rejects.toThrow('confirmed, ready brief');
-    expect(inspect).not.toHaveBeenCalled();
   } finally {
     await runtime.close();
   }

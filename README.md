@@ -88,11 +88,12 @@ npm run dev -- start --issue "Export filtered issues as CSV"
 
 One invocation runs one issue from exploration to delivery. The factory validates
 the brief in memory. Confirming the issue plan during exploration is the last
-user interaction: the factory then inspects the repository, infers setup commands,
-checks, change scope, and QA targets, implements, verifies, repairs in scope, and
-publishes a draft PR automatically. Only the exploration agent has `ask`;
-later agents cannot prompt or request approval. Necessary facts that cannot be
-established from the repository stop the run with a blocker, not a guessed default.
+user interaction: implementation owns repository setup, dependency installation,
+and scaffolding when needed. It supplies actual check commands and QA targets for
+the implemented candidate; the factory independently verifies, repairs in scope,
+and publishes a draft PR automatically. Only exploration has `ask`; later agents
+cannot prompt or request approval. Genuine external blockers stop the run, but
+missing app source, manifests, lockfiles, or scripts are implementation work.
 Confirmation also authorizes publication of verification screenshots and a small
 manifest. Use trusted repositories, test accounts, and disposable data.
 Stdout contains only the final delivery result JSON, not the intermediate brief.
@@ -130,15 +131,22 @@ every real issue.
 ### Repository discovery
 
 `dark start` always runs the registered `default` workflow:
-exploration → repository inspection → implementation → checks → QA → review → summary → draft PR.
+exploration → implementation/setup → checks → QA → review → summary → draft PR.
 The target is the Git root containing the CLI's working directory; the current
 local branch supplies the pinned base. GitHub publication uses `origin`, or a
 single unambiguous GitHub remote when origin is absent. Without a usable GitHub
 remote, verified work stays local.
 
-The inspection agent reads manifests, lockfiles, CI, instructions, and source with
-a read-only Mastra filesystem. It infers actual repository commands and targets
-without asking the user; it cannot execute code or change files. No delivery config is needed.
+There is no repository-inspection agent or pre-implementation plan gate. The
+implementation agent reads the pinned checkout using Mastra filesystem/sandbox
+tools, follows existing conventions, and creates a scaffold if the task needs one.
+A Git repository with an initial commit containing only a README is sufficient.
+Implementation supplies a validated verification plan on every candidate, with at
+least one meaningful deterministic check and all required UI targets. No delivery
+config is needed. Project sandboxes allow network access for dependency setup and
+verification; factory credentials are not passed to them. Changes may span the
+repository within the confirmed brief; protected-path and independent review
+gates still apply.
 QA uses **agent-browser** for web and **agent-device** for native iOS/Android.
 QA/review findings can return to implementation within a shared repair budget;
 new candidates always get fresh verification. Exploration confirmation authorizes
@@ -314,7 +322,7 @@ The [architecture guide](docs/architecture.md) maps resource ownership and gates
 
 Tests need no upstream credentials. Integration tests start a child test endpoint,
 run the actual Mastra agent/tool loop through both OpenAI protocols, answer through
-stdin, infer repository settings, validate final JSON and evidence, and verify
+stdin, scaffold empty repositories, validate final JSON and evidence, and verify
 cancellation/EOF cleanup.
 Shared repository/process setup lives in `test/fixtures/integration.ts`.
 The offline provider separates wire formatting (`provider-protocol.mjs`) from
