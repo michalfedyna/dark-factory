@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { factoryConfigSchema } from '../src/config/schema.js';
 import { createSandboxQa } from '../src/agents/sandbox-qa.js';
+import { createFigma } from '../src/agents/figma.js';
 import { createReview } from '../src/agents/review.js';
 import { qaSchema, type DeliveryRound } from '../src/contracts/delivery.js';
 import { createDeliveryAgents } from '../src/delivery/agent-sessions.js';
@@ -29,10 +30,12 @@ import {
   projectPlan,
 } from './fixtures/delivery.js';
 import { qaPass, reviewPass } from './fixtures/workflow.js';
+import { figmaResult, figmaSource } from './fixtures/figma.js';
 
 vi.mock('../src/integrations/git/repository.js');
 vi.mock('../src/agents/sandbox-qa.js');
 vi.mock('../src/agents/review.js');
+vi.mock('../src/agents/figma.js');
 const projectCommand = vi.hoisted(() =>
   vi.fn<NonNullable<LocalSandbox['executeCommand']>>(),
 );
@@ -758,5 +761,93 @@ test.each(['pass', 'error', 'cancel'] as const)(
     expect(sandboxSettings.at(-1)?.env).not.toHaveProperty(
       'DARKFACTORY_API_KEY',
     );
+  },
+);
+
+test.each(['pass', 'unread', 'error', 'cancel', 'missing-token'] as const)(
+  'Figma owns a separate workspace in the implementation checkout and stops it after %s',
+  async (outcome) => {
+    const { environment, options, controller } = await setup();
+    options.figma = { tokenEnv: 'FIGMA_TEST_TOKEN', auth: 'personal' };
+    if (outcome !== 'missing-token') options.figmaToken = 'private-figma-token';
+    await environment.prepare(brief, options.signal);
+    const run = environment.requireRun();
+    const workspace = environment.createFigmaWorkspace();
+    const stop = vi.spyOn(workspace, 'stop');
+    const state = {
+      ...candidateState(),
+      round: 0,
+      history: [],
+      figma: { sources: [figmaSource], result: null },
+    };
+    const generate = vi
+      .fn<ReturnType<typeof createFigma>>()
+      .mockImplementation(async (input) => {
+        expect(input.workspace).toBe(workspace);
+        expect(input.context.sources).toEqual([figmaSource]);
+        expect(input.tools).not.toHaveProperty('ask');
+        expect(JSON.stringify(input.context)).not.toContain(
+          'private-figma-token',
+        );
+        if (outcome === 'error') throw new Error('Provider failed');
+        if (outcome === 'cancel') {
+          controller.abort(new Error('Cancelled'));
+          return figmaResult;
+        }
+        if (outcome !== 'unread') {
+          vi.mocked(fetch).mockResolvedValueOnce(
+            Response.json({ nodes: { '1:2': { document: { id: '1:2' } } } }),
+          );
+          await input.tools.figma.execute!(
+            {
+              source: figmaSource.url,
+              operation: 'nodes',
+              nodeIds: ['1:2'],
+              format: 'png',
+            },
+            {},
+          );
+        }
+        await input.workspace.filesystem!.writeFile(
+          'ui-scaffold.tsx',
+          'export const Panel = () => null;',
+        );
+        return figmaResult;
+      });
+    vi.mocked(createFigma).mockReturnValueOnce(generate);
+    const agents = createDeliveryAgents(options);
+    const pending = agents.figma(run, state, workspace, options.signal);
+    if (outcome === 'error' || outcome === 'cancel')
+      await expect(pending).rejects.toThrow(
+        outcome === 'error' ? 'Provider failed' : 'Cancelled',
+      );
+    else {
+      const result = await pending;
+      if (outcome === 'missing-token') {
+        expect(result.blockers[0]).toContain('Set FIGMA_TEST_TOKEN');
+        expect(generate).not.toHaveBeenCalled();
+      } else if (outcome === 'unread')
+        expect(result.blockers[0]).toContain('was not inspected');
+      else {
+        expect(result).toEqual(figmaResult);
+        expect(
+          (
+            await run.implementationWorkspace.filesystem!.readFile(
+              'ui-scaffold.tsx',
+            )
+          ).toString(),
+        ).toBe('export const Panel = () => null;');
+      }
+    }
+    expect(stop).toHaveBeenCalledOnce();
+    expect(workspace).not.toBe(run.implementationWorkspace);
+    expect(workspace.sandbox).not.toBe(run.implementationSandbox);
+    expect(sandboxSettings.at(-1)).toEqual(run.projectSandboxOptions);
+    expect(sandboxSettings.at(-1)?.env).not.toHaveProperty('FIGMA_TEST_TOKEN');
+    expect(sandboxSettings.at(-1)?.env).not.toHaveProperty(
+      'private-figma-token',
+    );
+    await environment.close();
+    expect(workspace.status).toBe('destroyed');
   },
 );

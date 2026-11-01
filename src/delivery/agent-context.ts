@@ -50,6 +50,9 @@ export function implementationContext(
     task: createIssueTask(state.brief),
     allowedPaths: project.allowedPaths,
     checks: previous?.implementation.verification?.checks ?? [],
+    ...(state.figma?.result
+      ? { figma: { sources: state.figma.sources, result: state.figma.result } }
+      : {}),
     repair: previous
       ? {
           findings: previous.findings.map(repairFinding),

@@ -9,7 +9,7 @@ implemented here.
 - `contracts/` defines data and callback interfaces without importing application
   modules. It contains no presentation markup or browser transport state.
 - `agents/` defines model behavior and role-specific context types. `tools/`
-  exposes the injected `Ask` capability and constrained browser/device tools.
+  exposes the injected `Ask` capability, scoped Figma REST access and constrained browser/device tools.
   Neither depends on terminal rendering.
 - `workflows/default.ts` defines the single end-to-end `default` workflow with
   named steps and a nested delivery repair cycle. `workflows/steps.ts` owns Mastra
@@ -21,7 +21,7 @@ implemented here.
   execution; runtime code does not import the workflow implementation.
 - `factory/` registers the workflow with Mastra, adapts CLI cancellation to
   workflow runs, maps failures to safe messages, and owns background observation.
-- `integrations/` owns external Git, GitHub, and proxy adapters. The router adapter
+- `integrations/` owns external Figma, Git, GitHub, and proxy adapters. The router adapter
   owns only the process it starts, waits for the authenticated model catalog, and
   waits for readiness without a work deadline and bounds shutdown. `router/managed-process.ts` owns the factory's
   supervisor connection; `router/supervisor.ts` starts the proxy and stops its
@@ -61,7 +61,11 @@ CLIProxyAPI remains the model transport; it is not a user interface.
 7. Require a confirmed, ready brief, recheck the pinned base, and prepare the
    run-owned checkout and workspaces using the configured execution mode. No inspection agent or
    pre-implementation command plan is required. Implementation owns dependency
-   setup and app scaffolding, then returns actual check commands and web/native
+   setup and app scaffolding. Before implementation, `figma-ui` conditionally runs
+   the UI-only agent when the original issue or approved brief contains supported
+   Figma links. `delivery/figma-sources.ts` normalizes references; the REST tool is
+   scoped to these sources and records successful reads. The handoff and scaffold
+   enter implementation together. Implementation returns actual check commands and web/native
    targets for its candidate. Run checks, QA, and review in a supervised repair cycle.
    The exploration confirmation authorizes the full in-scope run; delivery has no
    interaction callback. Only passing candidates reach summary and automatic draft
@@ -86,6 +90,7 @@ bookkeeping, and round history are not included in initial agent task payloads.
 | Agent             | Direct task input                                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Exploration       | Original issue text; real user answers arrive through its own ask tool.                                                                                                                  |
+| Figma UI          | Approved issue task, allowed paths and canonical design sources; a scoped REST tool and separate Mastra workspace in the implementation checkout.                                        |
 | Implementation    | Issue task, repository-wide non-protected paths, previous candidate's check commands (initially empty); latest repair findings, failed criterion notes, and failed check-log tails only. |
 | Browser/mobile QA | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence metadata without file paths.                                        |
 | Sandbox QA        | Only blocked acceptance criteria and their notes, constraints, the current verification plan, and evidence references.                                                                   |
@@ -97,6 +102,14 @@ bookkeeping, and round history are not included in initial agent task payloads.
 users, scope, requirements, acceptance criteria, constraints, assumptions, user
 decisions, and risks. Approval/readiness/schema fields remain with the controller.
 Assumptions stay explicitly labeled as unverified.
+
+Implementation additionally receives the validated Figma handoff when present.
+`contracts/figma.ts` defines sources and role results; `integrations/figma/client.ts`
+owns fixed read-only REST endpoints and authentication; `tools/figma.ts` owns source
+scoping, multimodal previews and source-read tracking. The environment lazily owns
+the Figma workspace and sandbox, stops them after the stage and destroys them at
+run cleanup. Credentials stay outside workflow state, model context and sandbox
+environments. [Figma behavior](figma.md) describes the UI-only role boundary and limits.
 
 Browser/mobile QA does not receive implementation summaries, old reports, server-start/build
 commands, file paths, or check-log text. It has no workspace, filesystem, or shell

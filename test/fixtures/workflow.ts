@@ -9,6 +9,7 @@ import type { DeliveryOperations } from '../../src/delivery/operations.js';
 import { createDefaultWorkflow } from '../../src/workflows/default.js';
 import { brief } from './brief.js';
 import { verificationPlan } from './delivery.js';
+import { figmaResult } from './figma.js';
 
 const factories: Mastra[] = [];
 afterEach(async () => {
@@ -46,6 +47,10 @@ export function createWorkflowSetup(
   let captureCount = 0;
   const operations = {
     prepare: vi.fn<DeliveryOperations['prepare']>().mockResolvedValue('base'),
+    figma: vi.fn<DeliveryOperations['figma']>().mockResolvedValue({
+      ...figmaResult,
+      implementationNotes: ['Wire the export callback.'],
+    }),
     implement: vi.fn<DeliveryOperations['implement']>().mockResolvedValue({
       summary: 'Implemented CSV export and tests.',
       blockers: [],

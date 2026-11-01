@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import type { Workspace } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
+import type { FigmaResult, FigmaSource } from '../contracts/figma.js';
 import { implementationSchema } from '../contracts/delivery.js';
 import type { Project, VerificationPlan } from '../contracts/project.js';
 import { createModelConfig } from './model.js';
@@ -31,6 +32,7 @@ Verification handoff:
 - Use blockers only for issues that prevent implementation or a usable verification handoff. A blocked result may include a known verification plan; use null when no valid plan can be supplied. Any blocker stops the workflow, even when verification is present.
 
 Boundaries and repairs:
+- When a figma handoff is supplied, the UI agent has already scaffolded presentation in this checkout. Read its component interfaces, tokens and implementationNotes; preserve design fidelity and reuse that scaffold. Replace sample content and wire behavior, data, routing, state and integrations. Do not rebuild the UI from scratch. You own subsequent functional and UI repairs, within the approved scope.
 - Do not run Git, publish, modify factory artifacts, or access anything outside this run's repository. Respect allowedPaths.
 - When repair feedback is supplied, address its findings, failed criterion notes, and failed check logs. QA and review will independently recheck the entire new candidate.
 - Assumptions are unverified, not requirements. Report a blocker if a necessary assumption cannot be established.
@@ -50,6 +52,7 @@ export interface ImplementationContext {
   task: IssueTask;
   allowedPaths: Project['allowedPaths'];
   checks: VerificationPlan['checks'];
+  figma?: { sources: FigmaSource[]; result: FigmaResult };
   repair: {
     findings: RepairFinding[];
     failedCriteria: { id: string; notes: string }[];

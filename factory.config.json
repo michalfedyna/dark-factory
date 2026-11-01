@@ -18,5 +18,9 @@
   },
   "sandbox": {
     "isolation": "none"
+  },
+  "figma": {
+    "tokenEnv": "FIGMA_ACCESS_TOKEN",
+    "auth": "personal"
   }
 }

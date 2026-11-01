@@ -38,6 +38,15 @@ export const factoryConfigSchema = z
         isolation: z.enum(['none', 'native']).default('none'),
       })
       .prefault({}),
+    figma: z
+      .strictObject({
+        tokenEnv: z
+          .string()
+          .regex(/^[A-Z_][A-Z0-9_]*$/)
+          .default('FIGMA_ACCESS_TOKEN'),
+        auth: z.enum(['personal', 'oauth']).default('personal'),
+      })
+      .prefault({}),
   })
   .superRefine((config, context) => {
     if (!URL.canParse(config.model.baseUrl)) return;

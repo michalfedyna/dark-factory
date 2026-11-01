@@ -39,6 +39,18 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
   };
   return {
     requireRun,
+    createFigmaWorkspace: () => {
+      const run = requireRun();
+      const sandbox = own(new LocalSandbox(run.projectSandboxOptions));
+      const workspace = own(
+        new Workspace({
+          filesystem: new LocalFilesystem({ basePath: run.repository.path }),
+          sandbox,
+        }),
+      );
+      resources.delete(sandbox);
+      return workspace;
+    },
     requireRound: (candidate: DeliveryRound): RoundResources => {
       requireRun();
       if (

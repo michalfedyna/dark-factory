@@ -12,6 +12,13 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
   const agents = createDeliveryAgents(options);
   const operations: DeliveryOperations = {
     prepare: environment.prepare,
+    figma: (state, signal) =>
+      agents.figma(
+        environment.requireRun(),
+        state,
+        environment.createFigmaWorkspace(),
+        signal,
+      ),
     implement: (state, signal) =>
       agents.implement(environment.requireRun(), state, signal),
     capture: (signal) => environment.requireRun().repository.capture(signal),

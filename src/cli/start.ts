@@ -51,7 +51,12 @@ export async function startCommand(options: {
   const terminal = createTerminal({ cancel });
   const output = process.stderr;
   const progress = createProgressSpinner(output);
-  const debug = options.debug ? createDebugWriter(output, [apiKey]) : undefined;
+  const debug = options.debug
+    ? createDebugWriter(output, [
+        apiKey,
+        process.env[config.figma.tokenEnv] ?? '',
+      ])
+    : undefined;
   const startProgress = (message: string) => {
     if (!debug) progress.start(message);
   };

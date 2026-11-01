@@ -22,6 +22,10 @@ describe('factory configuration', () => {
     expect(config.model.reasoningEffort).toBe('medium');
     expect(config.router.managed).toBe(true);
     expect(config.sandbox.isolation).toBe('none');
+    expect(config.figma).toEqual({
+      tokenEnv: 'FIGMA_ACCESS_TOKEN',
+      auth: 'personal',
+    });
     expect(config.observer).toEqual({
       enabled: true,
       intervalMs: 15_000,
@@ -50,6 +54,10 @@ describe('factory configuration', () => {
     { sandbox: { isolation: 'auto' } },
     { sandbox: { isolation: false } },
     { sandbox: { typo: true } },
+    { figma: { tokenEnv: '' } },
+    { figma: { tokenEnv: 'figma-key' } },
+    { figma: { auth: 'none' } },
+    { figma: { token: 'must-not-be-in-config' } },
   ])('rejects invalid configuration %j', (input) => {
     expect(factoryConfigSchema.safeParse(input).success).toBe(false);
   });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { issueBriefSchema } from './issue.js';
 import { verificationPlanSchema } from './project.js';
+import { figmaResultSchema, figmaSourceSchema } from './figma.js';
 
 const text = z.string().trim().min(1).max(16_000);
 const findingSchema = z.strictObject({
@@ -86,6 +87,12 @@ export const deliveryStateSchema = z.strictObject({
   status: z.enum(['repair', 'approved', 'blocked']),
   reason: z.string(),
   history: z.array(roundSchema),
+  figma: z
+    .strictObject({
+      sources: z.array(figmaSourceSchema).min(1),
+      result: figmaResultSchema.nullable(),
+    })
+    .optional(),
   summary: summarySchema.nullable(),
 });
 export const deliveryResultSchema = z.strictObject({

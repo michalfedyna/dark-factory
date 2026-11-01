@@ -2,6 +2,7 @@
 
 ```text
 explore → confirm issue plan → prepare isolated checkout
+  → Figma UI scaffold (only for linked designs)
   → implement/setup/scaffold → snapshot → checks
   → browser/mobile QA → sandbox QA (only if criteria are blocked) → review
       ↑                         │                                   │
@@ -69,6 +70,13 @@ pinned checkout, installs dependencies, and scaffolds the app when the approved
 task needs it. An initial commit containing only an empty README is sufficient;
 the user does not need to prepare an app first. New apps need a manifest, lockfile,
 development and verification scripts, and ignores for dependency/build outputs.
+
+Issues with supported Figma links first run a dedicated UI-only scaffold agent in
+a separate workspace over the same checkout. It creates or maintains presentation
+and design-system code, not application logic. Implementation receives the scaffold
+and structured handoff, then owns functional wiring and all later repairs. Missing
+credentials or unread required sources block before implementation, with zero
+candidate rounds. See [Figma setup, ownership and REST limits](figma.md).
 
 Every successful implementation returns `verification`, validated by
 [`src/contracts/project.ts`](../src/contracts/project.ts), containing at least one

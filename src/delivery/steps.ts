@@ -7,6 +7,7 @@ import {
   type DeliveryState,
 } from '../contracts/delivery.js';
 import type { DeliveryOperations } from './operations.js';
+import { figmaResultSchema } from '../contracts/figma.js';
 import { applyReview, canReview, canRunQa } from './policy.js';
 import { combineQaReports, needsSandboxQa } from './qa-handoff.js';
 import { currentRound, replaceRound } from './state.js';
@@ -17,11 +18,26 @@ export type DeliveryStep = (
   signal: AbortSignal,
 ) => Promise<DeliveryState>;
 
+export const scaffoldUi: DeliveryStep = async (state, operations, signal) => {
+  if (!state.figma || state.status === 'blocked' || state.figma.result)
+    return state;
+  const result = figmaResultSchema.parse(await operations.figma(state, signal));
+  signal.throwIfAborted();
+  return {
+    ...state,
+    figma: { ...state.figma, result },
+    ...(result.blockers.length
+      ? { status: 'blocked' as const, reason: result.blockers.join('\n') }
+      : {}),
+  };
+};
+
 export const implementCandidate: DeliveryStep = async (
   state,
   operations,
   signal,
 ) => {
+  if (state.status === 'blocked') return state;
   const implementation = implementationSchema.parse(
     await operations.implement(state, signal),
   );

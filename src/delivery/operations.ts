@@ -8,6 +8,7 @@ import type { IssueBrief } from '../contracts/issue.js';
 // Agent results cross an untrusted boundary and are parsed by the workflow.
 export interface DeliveryOperations {
   prepare: (brief: IssueBrief, signal: AbortSignal) => Promise<string>;
+  figma: (state: DeliveryState, signal: AbortSignal) => Promise<unknown>;
   implement: (state: DeliveryState, signal: AbortSignal) => Promise<unknown>;
   capture: (signal: AbortSignal) => Promise<{ revision: string; tree: string }>;
   checks: (round: DeliveryRound, signal: AbortSignal) => Promise<DeliveryRound>;

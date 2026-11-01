@@ -1,4 +1,8 @@
 import { createImplementation } from '../agents/implementation.js';
+import type { Workspace } from '@mastra/core/workspace';
+import { createFigma } from '../agents/figma.js';
+import { createIssueTask } from '../agents/task.js';
+import { createFigmaTools } from '../tools/figma.js';
 import { createQa } from '../agents/qa.js';
 import { createSandboxQa } from '../agents/sandbox-qa.js';
 import { createReview } from '../agents/review.js';
@@ -25,6 +29,7 @@ import { QaTargetFailure } from './qa-session.js';
 /** Builds role-specific agent inputs and bounds each live agent session. */
 export function createDeliveryAgents(options: DeliveryOptions) {
   const implement = createImplementation(options.model, options.apiKey);
+  const figma = createFigma(options.model, options.apiKey);
   const qa = createQa(options.model, options.apiKey);
   const sandboxQa = createSandboxQa(options.model, options.apiKey);
   const review = createReview(options.model, options.apiKey);
@@ -34,6 +39,61 @@ export function createDeliveryAgents(options: DeliveryOptions) {
     ...(options.debug ? { debug: options.debug } : {}),
   };
   return {
+    figma: async (
+      run: RunResources,
+      state: DeliveryState,
+      workspace: Workspace,
+      signal: AbortSignal,
+    ) => {
+      if (!state.figma)
+        throw new Error('Figma scaffolding requires design sources.');
+      options.progress('Scaffolding UI from Figma');
+      try {
+        signal.throwIfAborted();
+        if (!options.figmaToken?.trim())
+          return {
+            summary: 'UI scaffolding is blocked by missing Figma credentials.',
+            components: [],
+            designSystem: [],
+            implementationNotes: [],
+            limitations: [],
+            blockers: [
+              `Set ${options.figma?.tokenEnv ?? 'FIGMA_ACCESS_TOKEN'} in your environment or .env to read the linked Figma designs.`,
+            ],
+          };
+        const tools = createFigmaTools({
+          sources: state.figma.sources,
+          token: options.figmaToken,
+          auth: options.figma?.auth ?? 'personal',
+          signal,
+        });
+        const result = await figma({
+          context: {
+            task: createIssueTask(state.brief),
+            allowedPaths: run.project.allowedPaths,
+            sources: state.figma.sources,
+          },
+          workspace,
+          tools: { figma: tools.figma },
+          signal,
+          ...observation,
+        });
+        signal.throwIfAborted();
+        return {
+          ...result,
+          blockers: [
+            ...result.blockers,
+            ...tools
+              .unreadSources()
+              .map(
+                ({ url }) => `Required Figma source was not inspected: ${url}`,
+              ),
+          ],
+        };
+      } finally {
+        await workspace.stop();
+      }
+    },
     implement: async (
       run: RunResources,
       state: DeliveryState,

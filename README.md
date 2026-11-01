@@ -1,7 +1,8 @@
 # DarkFactory
 
 A CLI software factory. The `default` workflow takes an issue through exploration,
-implementation, web/native QA, independent review, and automatic draft GitHub PR publication.
+optional Figma UI scaffolding, implementation, web/native QA, independent review,
+and automatic draft GitHub PR publication.
 
 The CLI is the only interface. There is no web app or local UI server.
 
@@ -9,6 +10,7 @@ The CLI is the only interface. There is no web app or local UI server.
 
 - [Setup](#setup), [run](#run), and [configuration](#configuration)
 - [Delivery setup, evidence, and limits](docs/delivery.md) — current behavior
+- [Figma UI agent and REST setup](docs/figma.md) — design-to-code and repository design systems
 - [Architecture and code ownership](docs/architecture.md) — current implementation
 - [Issue brief contract](docs/issue-brief.md) — validated exploration output
 - [Target workflow design](docs/Workflow.md) — future design, not an implemented feature list
@@ -101,7 +103,7 @@ enabled in config. Prompts remain interactive and stdout is still only the final
 validated JSON. Debug output can contain source code, user answers, and other
 sensitive data: keep captured logs private. The configured API key and common
 credential fields in formatted objects are redacted; this is not a general secret
-scanner. Raw provider headers, encrypted reasoning, and binary image contents are
+scanner. The configured Figma token is also redacted. Raw provider headers, encrypted reasoning, and binary image contents are
 not printed.
 
 One invocation runs one issue from exploration to delivery. The factory validates
@@ -149,7 +151,7 @@ every real issue.
 ### Repository discovery
 
 `dark start` always runs the registered `default` workflow:
-exploration → implementation/setup → checks → browser/mobile QA → sandbox QA if needed → review → summary → draft PR.
+exploration → Figma UI scaffold if linked → implementation/setup → checks → browser/mobile QA → sandbox QA if needed → review → summary → draft PR.
 The target is the Git root containing the CLI's working directory; the current
 local branch supplies the pinned base. GitHub publication uses `origin`, or a
 single unambiguous GitHub remote when origin is absent. Without a usable GitHub
@@ -159,6 +161,11 @@ There is no repository-inspection agent or pre-implementation plan gate. The
 implementation agent reads the pinned checkout using Mastra filesystem/sandbox
 tools, follows existing conventions, and creates a scaffold if the task needs one.
 A Git repository with an initial commit containing only a README is sufficient.
+For issues with Figma links, a dedicated UI-only agent first creates or updates
+presentational components and design-system code in the same checkout. Implementation
+receives its handoff and owns all functional wiring and subsequent repairs. Set
+`FIGMA_ACCESS_TOKEN` to read designs through REST; no token is needed for unlinked
+issues. This does not edit Figma files. See [Figma setup and limits](docs/figma.md).
 Implementation supplies a validated verification plan on every candidate, with at
 least one meaningful deterministic check and all required UI targets. No delivery
 config is needed. Project sandboxes allow network access for dependency setup and
@@ -186,7 +193,7 @@ See [workflow setup, evidence, and limitations](docs/delivery.md).
 
 `factory.config.json` is validated by
 [`src/config/schema.ts`](src/config/schema.ts). Unknown fields are rejected.
-Only model, observer, router, and sandbox execution settings belong here. Remove
+Only model, observer, router, sandbox execution, and Figma access settings belong here. Remove
 the old `model.maxSteps`, `sessionTimeoutMs`, `router.readyTimeoutMs`, `ui`,
 `delivery`, and `outputDir` fields from custom configs. Verification commands no
 longer accept `timeoutMs`.
@@ -210,6 +217,8 @@ passed directly, without a shell.
 | `router.command`        | `cliproxyapi`                       | Proxy executable.                                                                                                        |
 | `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                                                                         |
 | `sandbox.isolation`     | `none`                              | Host execution; set `native` to require Seatbelt (macOS) or Bubblewrap (Linux).                                          |
+| `figma.tokenEnv`        | `FIGMA_ACCESS_TOKEN`                | Environment variable holding the Figma token; required only for linked designs.                                          |
+| `figma.auth`            | `personal`                          | `personal` uses `X-Figma-Token`; `oauth` uses an existing Bearer access token.                                           |
 
 Host execution favors compatibility for trusted local repositories. Commands run
 with your account's filesystem and network permissions, even though they use a
@@ -238,7 +247,8 @@ No proxy configuration change is needed.
 ### Agent context
 
 Agents receive role-specific inputs, not the full workflow state or round history.
-Implementation gets the approved task, allowed paths, check commands, and only the
+The Figma agent gets the approved task, allowed paths and canonical design sources.
+Implementation gets its validated UI handoff when present, the approved task, allowed paths, check commands, and only the
 latest repair findings, failed criterion notes, and failed check-log tails.
 Browser/mobile QA gets acceptance criteria, constraints, target addresses, and current evidence
 metadata without file paths—not implementation claims, setup commands, or logs.
@@ -345,10 +355,10 @@ src/
   agents/               Mastra agents and their instructions
   workflows/            Native Mastra composition, step schemas, and request context
   delivery/             Delivery operations, resources, policy, evidence, and finishing
-  tools/                Ask, browser/device QA, and recorded QA evidence tools
+  tools/                Ask, Figma REST, browser/device QA, and recorded QA evidence tools
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
-  integrations/         External Git, GitHub, and proxy adapters
+  integrations/         External Figma, Git, GitHub, and proxy adapters
   factory/              Mastra registration, run lifecycle, and background observation
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests

@@ -29,6 +29,7 @@ export async function startFactory(
   const router = await startRouter(config, apiKey, directory, factorySignal);
   try {
     const explore = createExploration(config.model, apiKey, options.debug);
+    const figmaToken = process.env[config.figma.tokenEnv];
     const observerAgent =
       config.observer.enabled && !options.debug
         ? createObserver(config.model, config.observer, apiKey)
@@ -82,7 +83,7 @@ export async function startFactory(
                     emit: summary,
                     intervalMs: config.observer.intervalMs,
                     timeoutMs: config.observer.timeoutMs,
-                    secrets: [apiKey],
+                    secrets: [apiKey, figmaToken ?? ''],
                     signal,
                   })
                 : undefined;
@@ -93,6 +94,8 @@ export async function startFactory(
                 model: config.model,
                 sandbox: config.sandbox,
                 apiKey,
+                figma: config.figma,
+                ...(figmaToken ? { figmaToken } : {}),
                 runId,
                 signal,
                 progress: report,

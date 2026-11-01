@@ -17,6 +17,8 @@ export interface DeliveryOptions {
   model: FactoryConfig['model'];
   sandbox: FactoryConfig['sandbox'];
   apiKey: string;
+  figma?: FactoryConfig['figma'];
+  figmaToken?: string;
   runId: string;
   signal: AbortSignal;
   progress: (message: string) => void;

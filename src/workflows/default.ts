@@ -9,6 +9,7 @@ import {
   checkCandidate,
   implementCandidate,
   reviewCandidate,
+  scaffoldUi,
   summarizeCandidate,
   verifyCandidate,
   verifySandboxCandidate,
@@ -57,6 +58,7 @@ export function createDefaultWorkflow(dependencies: { explore: Explore }) {
   })
     .then(createExploreStep(dependencies.explore))
     .then(prepare)
+    .then(deliveryStep('figma-ui', scaffoldUi))
     .dountil(loop, ({ inputData }) =>
       Promise.resolve(deliveryStateSchema.parse(inputData).status !== 'repair'),
     )

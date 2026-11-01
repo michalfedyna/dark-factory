@@ -6,6 +6,7 @@ export function requestRole({ payload }) {
   if (payload?.events) return 'observer';
   if (payload?.patch !== undefined) return 'review';
   if (payload?.blockedCriteria) return 'sandbox-qa';
+  if (payload?.sources && payload?.allowedPaths) return 'figma';
   if (payload?.allowedPaths) return 'implementation';
   if (payload?.targets) return 'qa';
   if (payload?.issue) return 'summary';
@@ -28,6 +29,38 @@ export function scenarioReply(request, resultPath, mode) {
             : thinking
               ? `${thinking.agent} is considering: ${thinking.text}`
               : `Current delivery stage: ${payload.stage}.`,
+      },
+    };
+  }
+  if (role === 'figma') {
+    const actions = [
+      {
+        name: 'figma',
+        args: {
+          source: payload.sources[0].url,
+          operation: 'nodes',
+          nodeIds: [payload.sources[0].nodeId],
+        },
+      },
+      {
+        name: 'mastra_workspace_write_file',
+        args: {
+          path: 'ui-scaffold.tsx',
+          content: 'export const Panel = () => null;',
+        },
+      },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    return {
+      result: {
+        summary: 'Scaffolded the export panel.',
+        components: ['ui-scaffold.tsx: Panel'],
+        designSystem: [],
+        implementationNotes: [
+          'Wire the export callback and replace sample content.',
+        ],
+        limitations: [],
+        blockers: [],
       },
     };
   }
