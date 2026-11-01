@@ -5,6 +5,7 @@ import { figmaResultSchema, type FigmaSource } from '../contracts/figma.js';
 import type { Project } from '../contracts/project.js';
 import type { createFigmaTools } from '../tools/figma.js';
 import { createModelConfig } from './model.js';
+import { createDocumentation } from './documentation.js';
 import {
   deliveryInstructions,
   dependencyInstructions,
@@ -52,11 +53,20 @@ export function createFigma(model: FactoryConfig['model'], apiKey: string) {
       tools: Pick<ReturnType<typeof createFigmaTools>, 'figma'>;
     },
   ) => {
+    const modelConfig = createModelConfig(model, apiKey);
     const agent = new Agent({
       id: 'figma',
       name: 'Figma UI',
       instructions,
-      ...createModelConfig(model, apiKey),
+      ...modelConfig,
+      agents: {
+        documentation: createDocumentation(model, apiKey, input.observe),
+      },
+      defaultOptions: {
+        ...modelConfig.defaultOptions,
+        // Library research needs only the focused delegation prompt.
+        delegation: { messageFilter: () => [], hookErrorStrategy: 'throw' },
+      },
       workspace: input.workspace,
       tools: input.tools,
     });

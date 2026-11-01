@@ -65,7 +65,9 @@ export function statelessResponsesError(input, mode) {
 }
 
 export function encodeReply(url, request, reply, mode) {
-  const output = reply.tool ? undefined : JSON.stringify(reply.result);
+  const output = reply.tool
+    ? undefined
+    : (reply.text ?? JSON.stringify(reply.result));
   const toolId = `call-${reply.tool?.name ?? 'result'}-${request.messageCount}`;
   if (url === '/v1/chat/completions')
     return {

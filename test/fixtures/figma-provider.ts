@@ -1,41 +1,14 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { vi } from 'vitest';
-import {
-  factoryConfigSchema,
-  type FactoryConfig,
-} from '../../src/config/schema.js';
-import { startRouter } from '../../src/integrations/router/process.js';
-import { availablePort } from './integration.js';
-import { brief } from './brief.js';
+import type { FactoryConfig } from '../../src/config/schema.js';
 import { png } from './delivery.js';
+import { createModelProvider } from './model-provider.js';
 
 /** Offline model transport and Figma responses shared by agent tool-loop tests. */
 export async function createFigmaProvider(
   api: FactoryConfig['model']['api'],
   mode = 'delivery-figma',
 ) {
-  const directory = await mkdtemp(join(tmpdir(), 'darkfactory-figma-e2e-'));
-  const resultPath = join(directory, 'brief.json');
-  await writeFile(resultPath, JSON.stringify(brief));
-  const port = await availablePort();
-  const config = factoryConfigSchema.parse({
-    model: { api, baseUrl: `http://127.0.0.1:${port}/v1` },
-    router: {
-      command: process.execPath,
-      args: [
-        fileURLToPath(new URL('./router.mjs', import.meta.url)),
-        String(port),
-        resultPath,
-        mode,
-      ],
-    },
-  });
-  const controller = new AbortController();
-  const originalFetch = globalThis.fetch;
-  const modelRequests: unknown[] = [];
+  const provider = await createModelProvider(api, mode);
   const restFetch = vi.fn<typeof fetch>().mockImplementation((input) => {
     const url =
       input instanceof URL
@@ -72,40 +45,10 @@ export async function createFigmaProvider(
           headers: { 'Content-Type': 'image/png' },
         }),
       );
-    if (
-      url.pathname === '/v1/chat/completions' ||
-      url.pathname === '/v1/responses'
-    ) {
-      if (typeof options?.body === 'string') {
-        const body: unknown = JSON.parse(options.body);
-        modelRequests.push(body);
-      }
-    }
-    return originalFetch(input, options);
+    return provider.modelFetch(input, options);
   });
-  let router: Awaited<ReturnType<typeof startRouter>>;
-  try {
-    router = await startRouter(
-      config,
-      'test-key',
-      directory,
-      controller.signal,
-    );
-  } catch (error) {
-    controller.abort();
-    await rm(directory, { recursive: true, force: true });
-    throw error;
-  }
   return {
-    directory,
-    config,
-    controller,
+    ...provider,
     restFetch,
-    modelRequests,
-    close: async () => {
-      controller.abort();
-      await router.stop();
-      await rm(directory, { recursive: true, force: true });
-    },
   };
 }

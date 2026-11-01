@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 // Identify roles from their real data contracts, never from instruction wording.
 export function requestRole({ payload }) {
+  if (payload?.library) return 'documentation';
   if (payload?.events) return 'observer';
   if (payload?.patch !== undefined) return 'review';
   if (payload?.blockedCriteria) return 'sandbox-qa';
@@ -17,6 +18,54 @@ export function scenarioReply(request, resultPath, mode) {
   const role = requestRole(request);
   const { payload, toolResults } = request;
   const prefix = payload?.evidence?.[0]?.id.split('-e')[0] ?? 'r1';
+  if (role === 'documentation') {
+    const actions = [
+      {
+        name: 'search_web',
+        args: { query: `${payload.library} ${payload.version} official docs` },
+      },
+      { name: 'web_fetch', args: { url: 'https://docs.example.com/widgets' } },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    return {
+      text: 'Version: widgets 1.0. Guide: import createWidget; pass options. Pitfalls: options are required. Sources: https://docs.example.com/widgets. Limits: none.',
+    };
+  }
+  if (
+    mode === 'documentation' &&
+    (role === 'implementation' || role === 'figma')
+  ) {
+    if (toolResults === 0)
+      return {
+        tool: {
+          name: 'agent-documentation',
+          args: {
+            prompt: JSON.stringify({
+              library: 'widgets',
+              version: '1.0',
+              question: 'How do I create a widget?',
+            }),
+          },
+        },
+      };
+    return {
+      result:
+        role === 'implementation'
+          ? {
+              summary: 'Consulted the documentation guide.',
+              blockers: ['Test complete.'],
+              verification: null,
+            }
+          : {
+              summary: 'Consulted the documentation guide.',
+              components: [],
+              designSystem: [],
+              implementationNotes: [],
+              limitations: [],
+              blockers: [],
+            },
+    };
+  }
   if (role === 'observer') {
     const thinking = payload.events.findLast(
       (event) => event.kind === 'reasoning',

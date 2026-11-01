@@ -9,7 +9,7 @@ implemented here.
 - `contracts/` defines data and callback interfaces without importing application
   modules. It contains no presentation markup or browser transport state.
 - `agents/` defines model behavior and role-specific context types. `tools/`
-  exposes the injected `Ask` capability, scoped Figma REST access and constrained browser/device tools.
+  exposes the injected `Ask` capability, keyless web search, scoped Figma REST access and constrained browser/device tools.
   Neither depends on terminal rendering.
 - `workflows/default.ts` defines the single end-to-end `default` workflow with
   named steps and a nested delivery repair cycle. `workflows/steps.ts` owns Mastra
@@ -21,7 +21,7 @@ implemented here.
   execution; runtime code does not import the workflow implementation.
 - `factory/` registers the workflow with Mastra, adapts CLI cancellation to
   workflow runs, maps failures to safe messages, and owns background observation.
-- `integrations/` owns external Figma, Git, GitHub, and proxy adapters. The router adapter
+- `integrations/` owns external web search, Figma, Git, GitHub, and proxy adapters. The router adapter
   owns only the process it starts, waits for the authenticated model catalog, and
   waits for readiness without a work deadline and bounds shutdown. `router/managed-process.ts` owns the factory's
   supervisor connection; `router/supervisor.ts` starts the proxy and stops its
@@ -94,6 +94,7 @@ bookkeeping, and round history are not included in initial agent task payloads.
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Exploration       | Original issue text and real ask answers; scoped Figma PNG previews and lightweight screen names/IDs, without repository access or detailed specifications.                              |
 | Figma UI          | Approved issue task, allowed paths and canonical design sources; a scoped REST tool and separate Mastra workspace in the implementation checkout.                                        |
+| Documentation     | Only a focused library/version/API question and runtime constraints; native subagent of implementation and UI, without parent conversation history or repository access.                 |
 | Implementation    | Issue task, repository-wide non-protected paths, previous candidate's check commands (initially empty); latest repair findings, failed criterion notes, and failed check-log tails only. |
 | Browser/mobile QA | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence metadata without file paths.                                        |
 | Sandbox QA        | Only blocked acceptance criteria and their notes, constraints, the current verification plan, and evidence references.                                                                   |
@@ -105,6 +106,17 @@ bookkeeping, and round history are not included in initial agent task payloads.
 users, scope, requirements, acceptance criteria, constraints, assumptions, user
 decisions, and risks. Approval/readiness/schema fields remain with the controller.
 Assumptions stay explicitly labeled as unverified.
+
+Implementation and UI agents register `agents: { documentation }` through Mastra's
+native delegation support. Their shared instructions require `agent-documentation`
+before library/framework implementation, with same-session reuse for the same
+version/question. A fail-closed `messageFilter` omits parent conversation history.
+The read-only subagent owns `search_web` (keyless DuckDuckGo HTML search) and Mastra's
+built-in `web_fetch`; it returns a compact source-linked guide rather than page
+dumps. Nested tool results stay out of the parent's model context by default.
+No separate orchestration engine or workflow stage is added; this is a role
+instruction, not a controller-enforced library-usage gate. See
+[documentation research](documentation.md) for privacy, cost and availability limits.
 
 Implementation additionally receives the validated Figma handoff when present.
 `contracts/figma.ts` defines sources and role results; `integrations/figma/client.ts`

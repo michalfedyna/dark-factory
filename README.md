@@ -11,6 +11,7 @@ The CLI is the only interface. There is no web app or local UI server.
 - [Setup](#setup), [run](#run), and [configuration](#configuration)
 - [Delivery setup, evidence, and limits](docs/delivery.md) — current behavior
 - [Figma UI agent and REST setup](docs/figma.md) — design-to-code and repository design systems
+- [Documentation subagent](docs/documentation.md) — compact library guides and free, keyless web search
 - [Architecture and code ownership](docs/architecture.md) — current implementation
 - [Issue brief contract](docs/issue-brief.md) — validated exploration output
 - [Target workflow design](docs/Workflow.md) — future design, not an implemented feature list
@@ -169,6 +170,12 @@ issues. This does not edit Figma files. See [Figma setup and limits](docs/figma.
 During exploration, the agent can already view linked screens as PNGs, including
 links supplied in follow-up answers. It keeps questions product-focused; detailed
 design specifications remain the UI agent's responsibility.
+Both implementation and UI agents consult the read-only `documentation` subagent
+before library/framework implementation. It researches version-matched sources
+through keyless `search_web` and Mastra's `web_fetch`, returning compact guides,
+examples, pitfalls and citations instead of raw pages. Search is best effort and
+may be rate-limited; normal model costs still apply. No search key or new config
+is needed. See [documentation research and limits](docs/documentation.md).
 Implementation supplies a validated verification plan on every candidate, with at
 least one meaningful deterministic check and all required UI targets. No delivery
 config is needed. Project sandboxes allow network access for dependency setup and
@@ -360,10 +367,10 @@ src/
   agents/               Mastra agents and their instructions
   workflows/            Native Mastra composition, step schemas, and request context
   delivery/             Delivery operations, resources, policy, evidence, and finishing
-  tools/                Ask, Figma REST, browser/device QA, and recorded QA evidence tools
+  tools/                Ask, web search, Figma REST, browser/device QA, and QA evidence tools
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
-  integrations/         External Figma, Git, GitHub, and proxy adapters
+  integrations/         External web search, Figma, Git, GitHub, and proxy adapters
   factory/              Mastra registration, run lifecycle, and background observation
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests

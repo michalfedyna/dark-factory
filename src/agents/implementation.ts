@@ -5,6 +5,7 @@ import type { FigmaResult, FigmaSource } from '../contracts/figma.js';
 import { implementationSchema } from '../contracts/delivery.js';
 import type { Project, VerificationPlan } from '../contracts/project.js';
 import { createModelConfig } from './model.js';
+import { createDocumentation } from './documentation.js';
 import {
   deliveryInstructions,
   dependencyInstructions,
@@ -73,11 +74,20 @@ export function createImplementation(
   return (
     input: DeliveryAgentInput<ImplementationContext> & { workspace: Workspace },
   ) => {
+    const modelConfig = createModelConfig(model, apiKey);
     const agent = new Agent({
       id: 'implementation',
       name: 'Delivery implementation',
       instructions,
-      ...createModelConfig(model, apiKey),
+      ...modelConfig,
+      agents: {
+        documentation: createDocumentation(model, apiKey, input.observe),
+      },
+      defaultOptions: {
+        ...modelConfig.defaultOptions,
+        // Library research needs only the focused delegation prompt.
+        delegation: { messageFilter: () => [], hookErrorStrategy: 'throw' },
+      },
       workspace: input.workspace,
     });
     return generateDeliveryResult(agent, implementationSchema, input);
