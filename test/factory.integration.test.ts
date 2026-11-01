@@ -25,7 +25,12 @@ async function port(): Promise<number> {
   return address.port;
 }
 
-async function factory(api = 'responses', issue?: string, mode = 'normal') {
+async function factory(
+  api = 'responses',
+  issue?: string,
+  mode = 'normal',
+  observerEnabled = true,
+) {
   const directory = await mkdtemp(join(tmpdir(), 'darkfactory-cli-'));
   const source = join(directory, 'source');
   await mkdir(source);
@@ -68,6 +73,11 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
     configPath,
     JSON.stringify({
       model: { api, baseUrl: `http://127.0.0.1:${routerPort}/v1` },
+      observer: {
+        enabled: observerEnabled,
+        intervalMs: 1_000,
+        ...(mode.startsWith('observer') ? { modelId: 'observer-model' } : {}),
+      },
       router: {
         command: process.execPath,
         args: [
@@ -130,6 +140,73 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
     },
   };
 }
+
+test.each(['chat', 'responses'])(
+  'background summaries use a separate model without changing prompts or stdout (%s)',
+  async (api) => {
+    const run = await factory(api, 'Export issues', 'observer');
+    try {
+      await vi.waitFor(
+        () => {
+          expect(run.stderr()).toContain(
+            'Observer: Exploring the issue; no implementation has started.',
+          );
+        },
+        { timeout: 10_000 },
+      );
+      await vi.waitFor(
+        () => {
+          expect(run.stderr()).toContain('Which export format?');
+        },
+        { timeout: 10_000 },
+      );
+      const beforeAnswer = run.stderr();
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1_100);
+      });
+      expect(run.stderr()).toBe(beforeAnswer);
+      run.child.stdin.end('CSV\nStop\n');
+      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      expect(run.stderr()).toContain(
+        'Observer: Clarification received; the brief is being prepared.',
+      );
+      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain('test-key');
+      expect(run.stdout()).toBe('');
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
+
+test.each([true, false])(
+  'observer failure/disable never stops exploration or leaks credentials (enabled=%s)',
+  async (enabled) => {
+    const run = await factory(
+      'responses',
+      'Export issues',
+      'observer-failure',
+      enabled,
+    );
+    try {
+      run.child.stdin.end('CSV\nStop\n');
+      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      expect(run.stderr()).toContain('Which export format?');
+      expect(run.stderr()).toContain('Implement this brief?');
+      expect(run.stderr().includes('Progress summaries unavailable')).toBe(
+        enabled,
+      );
+      expect(run.stderr()).not.toContain('test-key');
+      expect(run.stdout()).toBe('');
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
 
 test.each(['chat', 'responses'])(
   'compiled default flow inspects the current repository but makes no changes when implementation is declined (%s API)',

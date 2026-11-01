@@ -1,13 +1,16 @@
 import { Mastra } from '@mastra/core/mastra';
 import { createExploration } from '../agents/exploration.js';
 import { createProjectInspection } from '../agents/project.js';
+import { createObserver } from '../agents/observer.js';
 import type { FactoryConfig } from '../config/schema.js';
 import type { Ask } from '../contracts/interaction.js';
+import type { Observe } from '../contracts/progress.js';
 import { inspectRepository } from '../integrations/git/inspect.js';
 import { startRouter } from '../integrations/router/process.js';
 import { createDefaultWorkflow } from '../workflows/default.js';
 import { createDeliveryRuntime } from './delivery-runtime.js';
 import { runDefault } from './run.js';
+import { createProgressObserver } from './observer.js';
 
 export async function startFactory(
   config: FactoryConfig,
@@ -24,8 +27,12 @@ export async function startFactory(
   );
   const router = await startRouter(config, apiKey, directory, factorySignal);
   const explore = createExploration(config.model, apiKey);
+  const observerAgent = config.observer.enabled
+    ? createObserver(config.model, config.observer, apiKey)
+    : undefined;
   const mastra = new Mastra({
     logger: false,
+    ...(observerAgent ? { agents: { observer: observerAgent.agent } } : {}),
     workflows: {
       default: createDefaultWorkflow({ explore }),
     },
@@ -36,30 +43,68 @@ export async function startFactory(
   });
   return {
     signal: factorySignal,
-    run: (issue: unknown, ask: Ask, progress: (message: string) => void) =>
-      runDefault({
-        issue,
-        ask,
-        progress,
-        workflow: mastra.getWorkflow('default'),
-        signal: factorySignal,
-        timeoutMs: config.sessionTimeoutMs,
-        runtime: (runId, signal) =>
-          createDeliveryRuntime({
-            inspect: createProjectInspection(
-              config.model,
+    run: async (
+      issue: unknown,
+      ask: Ask,
+      progress: (message: string) => void,
+      summary: (message: string) => void = progress,
+    ) => {
+      let observer: ReturnType<typeof createProgressObserver> | undefined;
+      const observe: Observe = (activity) => observer?.observe(activity);
+      const report = (message: string) => {
+        observe({ kind: 'stage', message });
+        progress(message);
+      };
+      const observedAsk: Ask = async (question, signal) => {
+        observer?.pause();
+        try {
+          return await ask(question, signal);
+        } finally {
+          observer?.resume();
+        }
+      };
+      try {
+        return await runDefault({
+          issue,
+          ask: observedAsk,
+          progress: report,
+          observe,
+          workflow: mastra.getWorkflow('default'),
+          signal: factorySignal,
+          timeoutMs: config.sessionTimeoutMs,
+          runtime: (runId, signal) => {
+            observer = observerAgent
+              ? createProgressObserver({
+                  summarize: observerAgent.summarize,
+                  emit: summary,
+                  intervalMs: config.observer.intervalMs,
+                  timeoutMs: config.observer.timeoutMs,
+                  signal,
+                })
+              : undefined;
+            return createDeliveryRuntime({
+              inspect: createProjectInspection(
+                config.model,
+                apiKey,
+                repository,
+                observedAsk,
+                observe,
+              ),
+              model: config.model,
               apiKey,
-              repository,
-              ask,
-            ),
-            model: config.model,
-            apiKey,
-            runId,
-            ask,
-            signal,
-            progress,
-          }),
-      }),
+              runId,
+              ask: observedAsk,
+              signal,
+              progress: report,
+              observe,
+            });
+          },
+        });
+      } finally {
+        // Abort without waiting for a slow observer; final output is authoritative.
+        observer?.close();
+      }
+    },
     close: (): Promise<void> => {
       if (!closing) {
         controller.abort(new Error('The factory stopped.'));

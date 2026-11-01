@@ -131,31 +131,60 @@ See [workflow setup, evidence, and limitations](docs/delivery.md).
 
 `factory.config.json` is validated by
 [`src/config/schema.ts`](src/config/schema.ts). Unknown fields are rejected.
-Only model, router, and workflow timeout settings belong here. Remove the old
+Only model, observer, router, and workflow timeout settings belong here. Remove the old
 `ui`, `delivery`, and `outputDir` fields from custom configs.
 
 `.env` and router arguments are relative to the config directory.
 The executable is resolved through `PATH` or an absolute path. Arguments are
 passed directly, without a shell.
 
-| Option                  | Default                             | Purpose                                                                |
-| ----------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| `model.id`              | `gpt-6.1-sol`                       | Exact model ID/alias exposed by the proxy.                             |
-| `model.baseUrl`         | `http://127.0.0.1:8317/v1`          | OpenAI-compatible API base URL.                                        |
-| `model.api`             | `responses`                         | `responses` or `chat`.                                                 |
-| `model.apiKeyEnv`       | `DARKFACTORY_API_KEY`               | Environment variable holding the proxy client key.                     |
-| `model.maxSteps`        | `30`                                | Maximum model steps, including tool calls.                             |
-| `router.managed`        | `true`                              | Own a proxy child; `false` uses an existing endpoint.                  |
-| `router.command`        | `cliproxyapi`                       | Proxy executable.                                                      |
-| `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                       |
-| `router.readyTimeoutMs` | `20000`                             | Proxy/model startup deadline.                                          |
-| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including approvals and repairs (30 minutes). |
+| Option                  | Default                             | Purpose                                                                  |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| `model.id`              | `gpt-6.1-sol`                       | Exact model ID/alias exposed by the proxy.                               |
+| `model.baseUrl`         | `http://127.0.0.1:8317/v1`          | OpenAI-compatible API base URL.                                          |
+| `model.api`             | `responses`                         | `responses` or `chat`.                                                   |
+| `model.apiKeyEnv`       | `DARKFACTORY_API_KEY`               | Environment variable holding the proxy client key.                       |
+| `model.maxSteps`        | `30`                                | Maximum model steps, including tool calls.                               |
+| `observer.enabled`      | `true`                              | Background, user-facing progress summaries on stderr.                    |
+| `observer.modelId`      | Same as `model.id`                  | Optional separate model ID on the same proxy, protocol, and credentials. |
+| `observer.intervalMs`   | `15000`                             | Minimum time between summary requests; no requests without new activity. |
+| `observer.timeoutMs`    | `10000`                             | Deadline for each background summary request.                            |
+| `router.managed`        | `true`                              | Own a proxy child; `false` uses an existing endpoint.                    |
+| `router.command`        | `cliproxyapi`                       | Proxy executable.                                                        |
+| `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                         |
+| `router.readyTimeoutMs` | `20000`                             | Proxy/model startup deadline.                                            |
+| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including approvals and repairs (30 minutes).   |
 
 For an existing/remote endpoint, set `router.managed: false` and configure the
 model URL, protocol, and key. Managed URLs must be loopback addresses. The factory
 never stops a service it did not start. Unexpected proxy exits cancel active model
 work and pending input. Proxy logs are not mixed into JSON; run the configured
 proxy command directly for its detailed diagnostics.
+
+### Background observer
+
+The observer is a separate, tool-free Mastra agent. It turns workflow stages,
+tool activity, check outcomes, and delivery gate metadata into short `Observer:`
+updates on stderr. It runs alongside the workflow, not as a blocking step.
+Updates pause during terminal questions and approvals; stale results from a
+previous stage or prompt are discarded. Final stdout JSON is unchanged.
+
+The observer receives only the latest 40 metadata events, the current stage, and
+its previous summary—not source files, tool arguments/results, user answers,
+reasoning, or credentials. Tool completion is not proof of passing verification.
+Summaries are informational and never approve work or control delivery gates.
+
+It uses `model.id` by default. To use a faster/cheaper model, set
+`observer.modelId` to an ID your proxy supports. Summaries incur additional model
+calls, at most one at a time, only after new activity. A summary failure disables
+summaries for that run and leaves normal stage updates running. Completion,
+cancellation, and errors abort background work without waiting for it.
+Set `observer.enabled: false` to keep only the existing stage updates.
+
+This follows the background-observation pattern from
+[Mastra observational memory](https://mastra.ai/docs/memory/observational-memory),
+but does not enable conversation compression, a Reflector, or durable memory.
+Those solve agent context management rather than live user-facing progress.
 
 ## Output and boundaries
 

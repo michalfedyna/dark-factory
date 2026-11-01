@@ -20,6 +20,11 @@ describe('factory configuration', () => {
     expect(config.model.id).toBe('gpt-6.1-sol');
     expect(config.model.api).toBe('responses');
     expect(config.router.managed).toBe(true);
+    expect(config.observer).toEqual({
+      enabled: true,
+      intervalMs: 15_000,
+      timeoutMs: 10_000,
+    });
     expect(config).not.toHaveProperty('ui');
   });
   test.each([
@@ -29,6 +34,10 @@ describe('factory configuration', () => {
     { model: { baseUrl: 'file:///etc/passwd' } },
     { model: { baseUrl: 'https://example.com/v1' } },
     { model: { maxSteps: 0 } },
+    { observer: { intervalMs: 0 } },
+    { observer: { timeoutMs: 0 } },
+    { observer: { modelId: ' ' } },
+    { observer: { typo: true } },
   ])('rejects invalid configuration %j', (input) => {
     expect(factoryConfigSchema.safeParse(input).success).toBe(false);
   });
@@ -39,6 +48,16 @@ describe('factory configuration', () => {
         model: { baseUrl: 'https://example.com/v1' },
       }).success,
     ).toBe(true);
+  });
+  test('allows disabling summaries or selecting a separate observer model', () => {
+    expect(
+      factoryConfigSchema.parse({ observer: { enabled: false } }).observer
+        .enabled,
+    ).toBe(false);
+    expect(
+      factoryConfigSchema.parse({ observer: { modelId: 'fast-model' } })
+        .observer.modelId,
+    ).toBe('fast-model');
   });
   test('loads relative paths from the config directory and explains validation errors', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'darkfactory-config-'));

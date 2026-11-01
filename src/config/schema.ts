@@ -16,6 +16,14 @@ export const factoryConfigSchema = z
         maxSteps: z.number().int().min(2).max(100).default(30),
       })
       .prefault({}),
+    observer: z
+      .strictObject({
+        enabled: z.boolean().default(true),
+        modelId: z.string().trim().min(1).optional(),
+        intervalMs: z.number().int().min(1_000).max(300_000).default(15_000),
+        timeoutMs: z.number().int().min(1_000).max(60_000).default(10_000),
+      })
+      .prefault({}),
     router: z
       .strictObject({
         managed: z.boolean().default(true),

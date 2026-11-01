@@ -1,5 +1,6 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { issueInputSchema, type Ask } from '../contracts/interaction.js';
+import type { Observe } from '../contracts/progress.js';
 import type {
   createDefaultWorkflow,
   DeliveryOperations,
@@ -14,6 +15,7 @@ export async function runDefault(options: {
   issue: unknown;
   ask: Ask;
   progress: (message: string) => void;
+  observe?: Observe;
   workflow: ReturnType<typeof createDefaultWorkflow>;
   runtime: (
     runId: string,
@@ -52,6 +54,7 @@ export async function runDefault(options: {
           requestContext: new RequestContext([
             ['ask', options.ask],
             ['progress', options.progress],
+            ['observe', options.observe ?? (() => {})],
             ['operations', runtime.operations],
             ['signal', signal],
           ]),

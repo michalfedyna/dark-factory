@@ -1,6 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import type { Explore } from '../agents/exploration.js';
+import type { Observe } from '../contracts/progress.js';
 import {
   answerSchema,
   issueInputSchema,
@@ -51,6 +52,7 @@ const requestContextSchema = z.object({
     (value) => typeof value === 'object' && value !== null,
   ),
   signal: z.instanceof(AbortSignal),
+  observe: z.custom<Observe>((value) => typeof value === 'function').optional(),
 });
 
 export function createDefaultWorkflow(dependencies: { explore: Explore }) {
@@ -85,7 +87,12 @@ export function createDefaultWorkflow(dependencies: { explore: Explore }) {
         }
       };
       try {
-        const brief = await dependencies.explore(inputData.issue, ask, signal);
+        const brief = await dependencies.explore(
+          inputData.issue,
+          ask,
+          signal,
+          requestContext.get('observe'),
+        );
         signal.throwIfAborted();
         return issueBriefSchema.parse(brief);
       } finally {

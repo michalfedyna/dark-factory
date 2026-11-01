@@ -12,5 +12,10 @@
     "args": ["-config", "config/router.yaml"],
     "readyTimeoutMs": 20000
   },
+  "observer": {
+    "enabled": true,
+    "intervalMs": 15000,
+    "timeoutMs": 10000
+  },
   "sessionTimeoutMs": 1800000
 }

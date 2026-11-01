@@ -58,6 +58,25 @@ exploration-only command or `--deliver` opt-in. Start another invocation for ano
 There is no custom Sessions class, session polling, browser state, or durable
 conversation resume. Mastra owns step sequencing, run IDs, and execution status.
 
+## Progress observer
+
+`agents/observer.ts` defines a tool-free Mastra agent for user-facing progress,
+separate from the verified final PR summary. `factory/observer.ts` batches a
+bounded window of metadata and schedules at most one background request at a
+time. Native Mastra tool hooks in `agents/activity.ts` forward only tool names,
+roles, and execution status; workflow stages and trusted check/gate outcomes
+provide the remaining facts. No source, arguments, results, reasoning, user
+answers, or credentials enter the observer prompt.
+
+Each invocation owns its observer and ties it to the whole-workflow signal.
+`factory/start.ts` pauses it around every
+question and approval, discards stale-stage/prompt results, and aborts it in
+`finally` without delaying workflow completion. Failures disable summaries only;
+normal progress continues. The CLI renders summaries on stderr through Clack
+without mixing them into stdout JSON or a pending prompt. Observations are not
+fed back into agents, gates, or approvals. This is not durable observational
+memory and does not add storage or a custom workflow engine.
+
 ## Cancellation and failures
 
 All model/tool work receives an AbortSignal combining the native workflow signal

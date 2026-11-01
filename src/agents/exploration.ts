@@ -2,12 +2,15 @@ import { Agent } from '@mastra/core/agent';
 import type { FactoryConfig } from '../config/schema.js';
 import { issueBriefSchema } from '../contracts/issue.js';
 import type { Ask } from '../contracts/interaction.js';
+import type { Observe } from '../contracts/progress.js';
 import { createAskTool } from '../tools/ask.js';
+import { createActivityHooks } from './activity.js';
 
 export type Explore = (
   issue: string,
   ask: Ask,
   signal: AbortSignal,
+  observe?: Observe,
 ) => Promise<unknown>;
 
 const instructions = `You are the DarkFactory exploration agent. Collaborate with the user to turn an issue into an accurate, testable issue brief. You do not implement code at this stage and have no access to the repository or the web.
@@ -21,7 +24,7 @@ export function createExploration(
   config: FactoryConfig['model'],
   apiKey: string,
 ): Explore {
-  return async (issue, ask, signal) => {
+  return async (issue, ask, signal, observe) => {
     // Each workflow run owns its agent and tools: no shared conversation state.
     const agent = new Agent({
       id: 'exploration',
@@ -39,6 +42,7 @@ export function createExploration(
       abortSignal: signal,
       maxSteps: config.maxSteps,
       toolCallConcurrency: 1,
+      hooks: createActivityHooks('exploration', observe),
       structuredOutput: {
         schema: issueBriefSchema,
         jsonPromptInjection: 'system',

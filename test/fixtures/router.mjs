@@ -45,11 +45,41 @@ const server = createServer((request, response) => {
   request.on('data', (chunk) => {
     chunks.push(chunk);
   });
-  request.on('end', () => {
+  request.on('end', async () => {
     const input = JSON.parse(Buffer.concat(chunks).toString());
-    if (input.model !== 'gpt-6.1-sol') {
+    const isObserver = JSON.stringify(input).includes(
+      'You are the DarkFactory progress observer.',
+    );
+    if (
+      input.model !== 'gpt-6.1-sol' &&
+      !(isObserver && input.model === 'observer-model')
+    ) {
       response.writeHead(400).end('Wrong model ID');
       return;
+    }
+    if (isObserver && mode === 'observer-failure') {
+      response.writeHead(400, { 'Content-Type': 'application/json' }).end(
+        JSON.stringify({
+          error: { message: 'Authorization: Bearer test-key' },
+        }),
+      );
+      return;
+    }
+    if (
+      mode.startsWith('observer') &&
+      !isObserver &&
+      JSON.stringify(input).includes(
+        'You are the DarkFactory exploration agent.',
+      ) &&
+      (mode === 'observer' ||
+        !(input.messages ?? input.input).some(
+          (item) =>
+            item.role === 'tool' || item.type === 'function_call_output',
+        ))
+    ) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1_500);
+      });
     }
     const question = {
       question: 'Which export format?',
@@ -57,9 +87,10 @@ const server = createServer((request, response) => {
       options: ['CSV', 'JSON'],
     };
     const savedOutput = resultPath ? readFileSync(resultPath, 'utf8') : '{}';
-    const delivery =
-      mode.startsWith('delivery') ||
-      JSON.stringify(input).includes('You inspect the current repository')
+    const delivery = isObserver
+      ? progressReply(input)
+      : mode.startsWith('delivery') ||
+          JSON.stringify(input).includes('You inspect the current repository')
         ? deliveryReply(input, savedOutput, mode)
         : undefined;
     const output = delivery?.result
@@ -143,6 +174,31 @@ const server = createServer((request, response) => {
     response.end();
   });
 });
+
+function progressReply(input) {
+  const message = (input.messages ?? input.input).find(
+    (item) => item.role === 'user',
+  );
+  const text =
+    typeof message.content === 'string'
+      ? message.content
+      : message.content.map((part) => part.text ?? '').join('');
+  const snapshot = JSON.parse(text);
+  const answered = snapshot.events.some(
+    (event) =>
+      event.kind === 'tool' &&
+      event.agent === 'exploration' &&
+      event.tool === 'ask' &&
+      event.status === 'completed',
+  );
+  return {
+    result: {
+      summary: answered
+        ? 'Clarification received; the brief is being prepared.'
+        : 'Exploring the issue; no implementation has started.',
+    },
+  };
+}
 
 function deliveryReply(input, savedOutput, mode) {
   const serialized = JSON.stringify(input);

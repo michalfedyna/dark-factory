@@ -19,6 +19,7 @@ import {
   type DeliveryState,
 } from '../contracts/delivery.js';
 import type { Ask } from '../contracts/interaction.js';
+import type { Observe } from '../contracts/progress.js';
 import {
   createRunRepository,
   readBase,
@@ -44,6 +45,7 @@ export function createDeliveryRuntime(options: {
   ask: Ask;
   signal: AbortSignal;
   progress: (message: string) => void;
+  observe?: Observe;
 }) {
   const { runId, ask, progress } = options;
   let config: Project;
@@ -253,6 +255,7 @@ export function createDeliveryRuntime(options: {
           },
           workspace: implementation,
           signal,
+          ...(options.observe ? { observe: options.observe } : {}),
         });
       } finally {
         await implementation.sandbox!.stop?.();
@@ -275,7 +278,13 @@ export function createDeliveryRuntime(options: {
             : [],
         ),
       ]) {
+        options.observe?.({ kind: 'check', id: check.id, status: 'started' });
         const result = await projectCommand(check, signal);
+        options.observe?.({
+          kind: 'check',
+          id: check.id,
+          status: result.exitCode === 0 ? 'passed' : 'failed',
+        });
         const record = await evidence.record(
           {
             kind: 'check',
@@ -335,6 +344,7 @@ export function createDeliveryRuntime(options: {
           workspace: reader,
           tools,
           signal,
+          ...(options.observe ? { observe: options.observe } : {}),
         });
         if (servers.some((process) => process.exitCode !== undefined))
           throw new Error(
@@ -374,6 +384,7 @@ export function createDeliveryRuntime(options: {
         context: { patch },
         workspace: reader,
         signal,
+        ...(options.observe ? { observe: options.observe } : {}),
       });
     },
     assertUnchanged: (revision, signal) =>
@@ -384,6 +395,7 @@ export function createDeliveryRuntime(options: {
         state,
         context: { targets: config.targets },
         signal,
+        ...(options.observe ? { observe: options.observe } : {}),
       });
     },
     finish: async (state, signal) => {
@@ -451,6 +463,17 @@ export function createDeliveryRuntime(options: {
       return result;
     },
     record: async (state) => {
+      const round = state.history.at(-1);
+      options.observe?.({
+        kind: 'round',
+        round: state.round,
+        status: state.status,
+        blockingFindings:
+          round?.findings.filter((finding) => finding.severity === 'blocking')
+            .length ?? 0,
+        qa: round?.qa?.verdict ?? null,
+        review: round?.review?.verdict ?? null,
+      });
       await writeFile(
         join(directory, 'state.json'),
         JSON.stringify(state, null, 2),
