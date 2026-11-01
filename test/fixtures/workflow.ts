@@ -129,6 +129,7 @@ export function createWorkflowSetup(
     issue: 'Export issues',
     ask: vi.fn<Ask>().mockResolvedValue(' CSV '),
     progress: vi.fn<(message: string) => void>(),
+    onDeliveryStart: vi.fn<(signal: AbortSignal) => void>(),
     workflow: mastra.getWorkflow('default'),
     runtime,
     signal: new AbortController().signal,
@@ -146,11 +147,13 @@ export function createWorkflowSetup(
       return new RequestContext<{
         ask: Ask;
         progress: (message: string) => void;
+        onDeliveryStart?: (() => void) | undefined;
         operations: DeliveryOperations;
         signal: AbortSignal;
       }>([
         ['ask', options.ask],
         ['progress', options.progress],
+        ['onDeliveryStart', () => options.onDeliveryStart(options.signal)],
         ['operations', nativeRuntime.operations],
         ['signal', options.signal],
       ]);

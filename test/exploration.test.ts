@@ -37,10 +37,44 @@ describe('default workflow exploration stages', () => {
     );
     expect(options.ask).toHaveBeenCalledWith(question, expect.any(AbortSignal));
   });
+  test('starts delivery observation only after exploration validates and before delivery progress', async () => {
+    const finished = deferred<unknown>();
+    const started = deferred<void>();
+    const options = setup(async (_issue, ask, signal) => {
+      await ask(question, signal);
+      started.resolve();
+      return finished.promise;
+    });
+    const running = runDefault(options);
+    await started.promise;
+    expect(options.onDeliveryStart).not.toHaveBeenCalled();
+    options.onDeliveryStart.mockImplementation((signal) => {
+      expect(signal.aborted).toBe(false);
+      expect(options.progress).toHaveBeenCalledExactlyOnceWith('Exploring');
+      expect(options.operations.prepare).not.toHaveBeenCalled();
+    });
+    finished.resolve(brief);
+    await running;
+    expect(options.onDeliveryStart).toHaveBeenCalledExactlyOnceWith(
+      options.runtime.mock.calls[0]?.[1],
+    );
+  });
+  test('does not start delivery observation for an unconfirmed brief', async () => {
+    const options = setup(() =>
+      Promise.resolve({
+        ...brief,
+        readiness: 'needs-clarification',
+        confirmedByUser: false,
+      }),
+    );
+    await expect(runDefault(options)).rejects.toThrow('Workflow failed');
+    expect(options.onDeliveryStart).not.toHaveBeenCalled();
+  });
   test('fails closed on invalid model output or an empty answer', async () => {
     const invalid = setup(() => Promise.resolve({ title: 'Not a brief' }));
     await expect(runDefault(invalid)).rejects.toThrow('invalid brief');
     expect(invalid.operations.prepare).not.toHaveBeenCalled();
+    expect(invalid.onDeliveryStart).not.toHaveBeenCalled();
     const empty = setup(async (_issue, ask, signal) => {
       await ask(question, signal);
       return brief;
@@ -48,6 +82,7 @@ describe('default workflow exploration stages', () => {
     empty.ask.mockResolvedValue(' ');
     await expect(runDefault(empty)).rejects.toThrow('Exploration failed');
     expect(empty.operations.prepare).not.toHaveBeenCalled();
+    expect(empty.onDeliveryStart).not.toHaveBeenCalled();
   });
   test('rejects empty issues before calling the agent', async () => {
     const options = setup(vi.fn());
@@ -81,6 +116,7 @@ describe('default workflow exploration stages', () => {
       setImmediate(resolve);
     });
     expect(options.operations.prepare).not.toHaveBeenCalled();
+    expect(options.onDeliveryStart).not.toHaveBeenCalled();
   });
   test('native cancellation aborts the agent and prevents preparation', async () => {
     const started = deferred<AbortSignal>();
@@ -100,6 +136,7 @@ describe('default workflow exploration stages', () => {
     finished.resolve(brief);
     await running;
     expect(options.operations.prepare).not.toHaveBeenCalled();
+    expect(options.onDeliveryStart).not.toHaveBeenCalled();
   });
   test('shared workflow definitions keep concurrent runs and answers separate', async () => {
     const options = setup(async (issue, ask, signal) => {
@@ -151,6 +188,7 @@ describe('default workflow exploration stages', () => {
     await vi.advanceTimersByTimeAsync(30_001);
     await running;
     expect(options.operations.prepare).not.toHaveBeenCalled();
+    expect(options.onDeliveryStart).not.toHaveBeenCalled();
   });
   test('does not expose provider secrets in errors', async () => {
     const options = setup(() =>

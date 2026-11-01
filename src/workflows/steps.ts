@@ -27,6 +27,9 @@ export const requestContextSchema = z.object({
   ),
   signal: z.instanceof(AbortSignal),
   observe: z.custom<Observe>((value) => typeof value === 'function').optional(),
+  onDeliveryStart: z
+    .custom<() => void>((value) => typeof value === 'function')
+    .optional(),
 });
 
 export function createExploreStep(explore: Explore) {
@@ -84,9 +87,10 @@ export const prepare = createStep({
   execute: async ({ inputData, requestContext, abortSignal }) => {
     const signal = AbortSignal.any([abortSignal, requestContext.get('signal')]);
     signal.throwIfAborted();
-    requestContext.get('progress')('Preparing delivery');
     if (inputData.readiness !== 'ready' || !inputData.confirmedByUser)
       throw new Error('Delivery requires a confirmed, ready brief.');
+    requestContext.get('onDeliveryStart')?.();
+    requestContext.get('progress')('Preparing delivery');
     const baseRevision = await requestContext
       .get('operations')
       .prepare(inputData, signal);

@@ -213,12 +213,13 @@ does not restrict those tool permissions. See [agent context](docs/architecture.
 
 The observer is a separate, tool-free Mastra agent. It turns workflow stages,
 tool activity, check outcomes, and delivery gate metadata into short `Observer:`
-updates on stderr. It runs alongside the workflow, not as a blocking step.
+updates on stderr. It starts only after exploration returns a validated, confirmed,
+ready brief, then runs alongside delivery, not as a blocking step.
 In a terminal, updates appear as compact accent blocks with a bold cyan heading
 and a cyan left border, wrapped to the terminal width. `NO_COLOR` disables color;
 redirected stderr keeps plain `Observer: ...` lines. Updates add no surrounding blank lines.
-Updates pause during exploration questions and confirmation; stale results from a
-previous stage or prompt are discarded. Final stdout JSON is unchanged.
+Exploration activity is not collected or summarized; stale results from a previous
+delivery stage are discarded. Final stdout JSON is unchanged.
 
 The observer receives only the latest 40 metadata events, the current stage, and
 its previous summary—not source files, tool arguments/results, user answers,

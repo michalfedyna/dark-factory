@@ -89,8 +89,7 @@ const server = createServer((request, response) => {
     }
     if (
       mode.startsWith('observer') &&
-      role === 'exploration' &&
-      (mode === 'observer' || !input.toolResults)
+      (role === 'exploration' || role === 'inspection')
     ) {
       await new Promise((resolve) => {
         setTimeout(resolve, 1_500);

@@ -125,10 +125,12 @@ provide the remaining facts. No source, arguments, results, reasoning, user
 answers, or credentials enter the observer prompt.
 
 Each invocation owns its observer and ties it to the whole-workflow signal.
-`factory/start.ts` pauses it around every
-exploration question and confirmation, discards stale-stage/prompt results, and aborts it in
-`finally` without delaying workflow completion. Failures disable summaries only;
-normal progress continues. The CLI renders summaries on stderr through Clack
+After exploration returns a validated, confirmed, ready brief, the preparation
+step calls a per-run delivery-start callback to activate it before delivery progress.
+Exploration events are not collected and no summary requests run during exploration,
+questions, or confirmation. `factory/start.ts` aborts it in `finally` without
+delaying workflow completion; stale-stage results are discarded. Failures disable
+summaries only; normal progress continues. The CLI renders summaries on stderr through Clack
 without mixing them into stdout JSON or a pending prompt. Observations are not
 fed back into agents, gates, or approvals. This is not durable observational
 memory and does not add storage or a custom workflow engine.

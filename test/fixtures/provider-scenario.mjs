@@ -17,18 +17,9 @@ export function scenarioReply(request, resultPath, mode) {
   const { payload, toolResults } = request;
   const prefix = payload?.evidence?.[0]?.id.split('-e')[0] ?? 'r1';
   if (role === 'observer') {
-    const answered = payload.events.some(
-      (event) =>
-        event.kind === 'tool' &&
-        event.agent === 'exploration' &&
-        event.tool === 'ask' &&
-        event.status === 'completed',
-    );
     return {
       result: {
-        summary: answered
-          ? 'Clarification received; the brief is being prepared.'
-          : 'Exploring the issue; no implementation has started.',
+        summary: `Current delivery stage: ${payload.stage}.`,
       },
     };
   }

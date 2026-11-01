@@ -14,6 +14,7 @@ export async function runDefault(options: {
   ask: Ask;
   progress: (message: string) => void;
   observe?: Observe;
+  onDeliveryStart?: (signal: AbortSignal) => void;
   workflow: ReturnType<typeof createDefaultWorkflow>;
   runtime: (
     runId: string,
@@ -53,6 +54,7 @@ export async function runDefault(options: {
             ['ask', options.ask],
             ['progress', options.progress],
             ['observe', options.observe ?? (() => {})],
+            ['onDeliveryStart', () => options.onDeliveryStart?.(signal)],
             ['operations', runtime.operations],
             ['signal', signal],
           ]),

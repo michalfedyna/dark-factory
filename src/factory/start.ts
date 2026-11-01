@@ -57,24 +57,16 @@ export async function startFactory(
           observe({ kind: 'stage', message });
           progress(message);
         };
-        const observedAsk: Ask = async (question, signal) => {
-          observer?.pause();
-          try {
-            return await ask(question, signal);
-          } finally {
-            observer?.resume();
-          }
-        };
         try {
           return await runDefault({
             issue,
-            ask: observedAsk,
+            ask,
             progress: report,
             observe,
             workflow: mastra.getWorkflow('default'),
             signal: factorySignal,
             timeoutMs: config.sessionTimeoutMs,
-            runtime: (runId, signal) => {
+            onDeliveryStart: (signal) => {
               observer = observerAgent
                 ? createProgressObserver({
                     summarize: observerAgent.summarize,
@@ -84,7 +76,9 @@ export async function startFactory(
                     signal,
                   })
                 : undefined;
-              return createDeliveryRuntime({
+            },
+            runtime: (runId, signal) =>
+              createDeliveryRuntime({
                 inspect: createProjectInspection(
                   config.model,
                   apiKey,
@@ -98,8 +92,7 @@ export async function startFactory(
                 progress: report,
                 diagnostic,
                 observe,
-              });
-            },
+              }),
           });
         } finally {
           // Abort without waiting for a slow observer; final output is authoritative.

@@ -1,9 +1,10 @@
-import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { projectPlan } from './fixtures/delivery.js';
 import { deliveryResultSchema } from '../src/contracts/delivery.js';
+import type { SummarizeProgress } from '../src/contracts/progress.js';
 import {
   createTestRepository,
   startCompiledFactory,
@@ -39,18 +40,10 @@ async function factory(
 }
 
 test.each(['chat', 'responses'])(
-  'background summaries use a separate model without changing prompts or stdout (%s)',
+  'background summaries start only after exploration, using a separate model (%s)',
   async (api) => {
     const run = await factory(api, 'Export issues', 'observer');
     try {
-      await vi.waitFor(
-        () => {
-          expect(run.stderr()).toContain(
-            'Observer: Exploring the issue; no implementation has started.',
-          );
-        },
-        { timeout: 10_000 },
-      );
       await vi.waitFor(
         () => {
           expect(run.stderr()).toContain('Which export format?');
@@ -62,11 +55,55 @@ test.each(['chat', 'responses'])(
         setTimeout(resolve, 1_100);
       });
       expect(run.stderr()).toBe(beforeAnswer);
-      run.child.stdin.end('CSV\nStart\n');
+      expect(run.stderr()).not.toContain('Observer:');
+      expect(
+        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+      ).not.toContain('"role":"observer"');
+      run.child.stdin.write('CSV\n');
+      await vi.waitFor(
+        () => {
+          expect(run.stderr()).toContain('Start implementation?');
+        },
+        { timeout: 10_000 },
+      );
+      expect(run.stderr()).not.toContain('Observer:');
+      expect(
+        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+      ).not.toContain('"role":"observer"');
+      run.child.stdin.end('Start\n');
       expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain(
-        'Observer: Clarification received; the brief is being prepared.',
+        'Observer: Current delivery stage: Inspecting repository.',
       );
+      const contexts = (
+        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              role: string;
+              payload: Parameters<SummarizeProgress>[0];
+            },
+        );
+      const observations = contexts.filter(({ role }) => role === 'observer');
+      expect(observations.length).toBeGreaterThan(0);
+      expect(
+        contexts.findIndex(({ role }) => role === 'observer'),
+      ).toBeGreaterThan(
+        contexts.findIndex(({ role }) => role === 'inspection'),
+      );
+      for (const { payload } of observations) {
+        expect(payload.stage).not.toBe('Exploring');
+        expect(payload.events).not.toContainEqual({
+          kind: 'stage',
+          message: 'Exploring',
+        });
+        expect(payload.events).not.toContainEqual(
+          expect.objectContaining({ kind: 'tool', agent: 'exploration' }),
+        );
+      }
       expect(run.stderr()).not.toContain('Implement this brief?');
       expect(run.stderr()).not.toContain('test-key');
       expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
@@ -81,7 +118,7 @@ test.each(['chat', 'responses'])(
 );
 
 test.each([true, false])(
-  'observer failure/disable never stops exploration or leaks credentials (enabled=%s)',
+  'observer failure/disable never stops delivery or leaks credentials (enabled=%s)',
   async (enabled) => {
     const run = await factory(
       'responses',
