@@ -162,6 +162,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
           allowNetwork: project.allowNetwork,
           readOnlyPaths: [
             toolchain.ANDROID_HOME,
+            toolchain.ANDROID_AVD_HOME,
             toolchain.JAVA_HOME,
             toolchain.DEVELOPER_DIR,
           ].filter((path): path is string => Boolean(path)),

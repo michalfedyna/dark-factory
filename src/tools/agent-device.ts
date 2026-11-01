@@ -29,6 +29,14 @@ export function createAgentDeviceTool(options: QaToolOptions) {
         target.app,
         options.evidence,
       );
+      const deviceFlag =
+        target.platform === 'ios' &&
+        /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(target.device ?? '')
+          ? '--udid'
+          : target.platform === 'android' &&
+              /^emulator-\d+$/.test(target.device ?? '')
+            ? '--serial'
+            : '--device';
       return executeQaCommand(options, {
         kind: 'device',
         targetId,
@@ -41,7 +49,7 @@ export function createAgentDeviceTool(options: QaToolOptions) {
           `${options.session}-${targetId}`,
           '--platform',
           target.platform,
-          ...(target.device ? ['--device', target.device] : []),
+          ...(target.device ? [deviceFlag, target.device] : []),
         ],
         screenshot: operation === 'screenshot' ? prepared[0] : undefined,
       });

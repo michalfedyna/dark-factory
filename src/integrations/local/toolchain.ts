@@ -32,6 +32,28 @@ export async function toolchainEnvironment(
     env.ANDROID_HOME = androidSdk;
     env.ANDROID_SDK_ROOT = androidSdk;
   }
+  // Keep AVD discovery independent of the private run HOME. Do not expose
+  // ANDROID_USER_HOME: it can also contain host adb keys and preferences.
+  const androidUserHome =
+    host.ANDROID_EMULATOR_HOME ||
+    host.ANDROID_USER_HOME ||
+    (host.ANDROID_SDK_HOME
+      ? join(host.ANDROID_SDK_HOME, '.android')
+      : host.HOME
+        ? join(host.HOME, '.android')
+        : undefined);
+  const avdHome =
+    host.ANDROID_AVD_HOME ||
+    (androidUserHome ? join(androidUserHome, 'avd') : undefined);
+  if (
+    avdHome &&
+    (host.ANDROID_AVD_HOME ||
+      (await stat(avdHome).then(
+        (entry) => entry.isDirectory(),
+        () => false,
+      )))
+  )
+    env.ANDROID_AVD_HOME = avdHome;
   env.PATH = [
     dirname(process.execPath),
     ...(env.JAVA_HOME ? [join(env.JAVA_HOME, 'bin')] : []),

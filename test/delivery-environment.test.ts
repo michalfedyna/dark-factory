@@ -198,6 +198,8 @@ test('operations reject use before preparation and close is safe before setup', 
 test('all project roles receive explicit toolchain paths without inheriting host credentials or HOME', async () => {
   vi.stubEnv('JAVA_HOME', '/test/jdk');
   vi.stubEnv('ANDROID_HOME', '/test/sdk');
+  vi.stubEnv('ANDROID_AVD_HOME', '/test/avds');
+  vi.stubEnv('ANDROID_USER_HOME', '/host/adb-keys');
   vi.stubEnv('DEVELOPER_DIR', '/test/Xcode/Developer');
   vi.stubEnv('DARKFACTORY_API_KEY', 'host-secret');
   const { environment, options, candidate } = await setup();
@@ -208,9 +210,11 @@ test('all project roles receive explicit toolchain paths without inheriting host
     expect(settings?.env).toMatchObject({
       JAVA_HOME: '/test/jdk',
       ANDROID_HOME: '/test/sdk',
+      ANDROID_AVD_HOME: '/test/avds',
       DEVELOPER_DIR: '/test/Xcode/Developer',
     });
     expect(settings?.env).not.toHaveProperty('DARKFACTORY_API_KEY');
+    expect(settings?.env).not.toHaveProperty('ANDROID_USER_HOME');
   }
   const run = environment.requireRun();
   expect(run.projectSandboxOptions?.env?.HOME).toBe(
@@ -224,6 +228,7 @@ test('all project roles receive explicit toolchain paths without inheriting host
   ).toEqual(hostPaths);
   expect(run.projectSandboxOptions?.nativeSandbox?.readOnlyPaths).toEqual([
     '/test/sdk',
+    '/test/avds',
     '/test/jdk',
     '/test/Xcode/Developer',
   ]);

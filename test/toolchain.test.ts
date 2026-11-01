@@ -23,6 +23,8 @@ test('passes only tool locations and a UTF-8 locale, preferring real binaries ov
     JAVA_HOME: '/host/jdk',
     ANDROID_HOME: '/host/sdk',
     ANDROID_SDK_ROOT: '/different/sdk',
+    ANDROID_AVD_HOME: '/host/avds',
+    ANDROID_USER_HOME: '/host/android-keys',
     DEVELOPER_DIR: '/host/Xcode/Developer',
     DARKFACTORY_API_KEY: 'secret',
     FIGMA_ACCESS_TOKEN: 'figma-secret',
@@ -35,6 +37,7 @@ test('passes only tool locations and a UTF-8 locale, preferring real binaries ov
     DEVELOPER_DIR: '/host/Xcode/Developer',
     ANDROID_HOME: '/host/sdk',
     ANDROID_SDK_ROOT: '/host/sdk',
+    ANDROID_AVD_HOME: '/host/avds',
     PATH: [
       dirname(process.execPath),
       '/host/jdk/bin',
@@ -54,10 +57,13 @@ test.each([
     const home = await mkdtemp(join(tmpdir(), 'darkfactory-toolchain-'));
     directories.push(home);
     const sdk = join(home, relative);
+    const avds = join(home, '.android', 'avd');
     await mkdir(sdk, { recursive: true });
+    await mkdir(avds, { recursive: true });
     const env = await toolchainEnvironment({ HOME: home }, platform);
     expect(env.ANDROID_HOME).toBe(sdk);
     expect(env.ANDROID_SDK_ROOT).toBe(sdk);
+    expect(env.ANDROID_AVD_HOME).toBe(avds);
     expect(env.LANG).toBe(locale);
     expect(env).not.toHaveProperty('HOME');
   },
@@ -76,7 +82,43 @@ test('respects explicit SDK roots and UTF-8 locales without inventing missing SD
     LC_ALL: 'de_DE.utf8',
   });
   expect(await toolchainEnvironment({})).not.toHaveProperty('ANDROID_HOME');
+  expect(await toolchainEnvironment({})).not.toHaveProperty('ANDROID_AVD_HOME');
+  expect(
+    await toolchainEnvironment({ HOME: '/missing/home' }),
+  ).not.toHaveProperty('ANDROID_AVD_HOME');
 });
+
+test.each([
+  ['ANDROID_EMULATOR_HOME', 'emulator-config/avd'],
+  ['ANDROID_USER_HOME', 'user-config/avd'],
+  ['ANDROID_SDK_HOME', 'legacy-config/.android/avd'],
+] as const)(
+  'discovers AVDs through %s without exposing host Android preferences',
+  async (key, relative) => {
+    const home = await mkdtemp(join(tmpdir(), 'darkfactory-avd-'));
+    directories.push(home);
+    const avds = join(home, relative);
+    await mkdir(avds, { recursive: true });
+    const env = await toolchainEnvironment({
+      HOME: '/unused/home',
+      ANDROID_SDK_HOME: join(home, 'legacy-config'),
+      ...(key !== 'ANDROID_SDK_HOME'
+        ? { ANDROID_USER_HOME: join(home, 'user-config') }
+        : {}),
+      ...(key === 'ANDROID_EMULATOR_HOME'
+        ? { ANDROID_EMULATOR_HOME: join(home, 'emulator-config') }
+        : {}),
+    });
+    expect(env.ANDROID_AVD_HOME).toBe(avds);
+    for (const name of [
+      'HOME',
+      'ANDROID_USER_HOME',
+      'ANDROID_EMULATOR_HOME',
+      'ANDROID_SDK_HOME',
+    ])
+      expect(env).not.toHaveProperty(name);
+  },
+);
 
 test('real Mastra commands receive the toolchain environment and a private home, not credentials', async () => {
   const home = await mkdtemp(join(tmpdir(), 'darkfactory-toolchain-command-'));
@@ -88,6 +130,8 @@ test('real Mastra commands receive the toolchain environment and a private home,
       ...(await toolchainEnvironment({
         JAVA_HOME: '/test/jdk',
         ANDROID_HOME: '/test/sdk',
+        ANDROID_AVD_HOME: '/test/avds',
+        ANDROID_USER_HOME: '/host/adb-keys',
         DARKFACTORY_API_KEY: 'private',
       })),
       HOME: home,
@@ -106,8 +150,10 @@ test('real Mastra commands receive the toolchain environment and a private home,
       HOME: home,
       JAVA_HOME: '/test/jdk',
       ANDROID_HOME: '/test/sdk',
+      ANDROID_AVD_HOME: '/test/avds',
     });
     expect(env).not.toHaveProperty('DARKFACTORY_API_KEY');
+    expect(env).not.toHaveProperty('ANDROID_USER_HOME');
     expect(result.stdout).toMatch(/UTF-8/);
   } finally {
     await sandbox.destroy();

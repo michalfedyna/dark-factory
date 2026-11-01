@@ -62,6 +62,13 @@ Android platform-tools, and emulator binaries precede version-manager shims on
 so explicitly selected agent-browser/agent-device wrappers are not bypassed.
 Native isolation permits
 read access to these toolchain locations, not writes to the host SDK or JDK.
+The controller also forwards `ANDROID_AVD_HOME`, or discovers an existing AVD
+directory through the host's `ANDROID_EMULATOR_HOME`, `ANDROID_USER_HOME`, legacy
+`ANDROID_SDK_HOME`, or `$HOME/.android/avd`. This makes `emulator -list-avds` work
+inside the private run home. It does not forward host Android preferences or adb
+keys. Host AVD files are read-only in native isolation; use `emulator -read-only`
+and keep writable emulator configuration in the private run home. Stop run-started
+processes without shutting down pre-existing user devices.
 
 Set custom locations in the launching shell or the config's adjacent `.env`:
 
@@ -71,16 +78,24 @@ export JAVA_HOME="/path/to/a/compatible/jdk"
 export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 ```
 
-Use a JDK supported by the project's Gradle version; the newest installed Java
-may not be compatible. Install the required Android platform/build-tools and boot
-a test device before starting. Host AVD definitions are not copied into the private
-run home. For iOS, use an Expo SDK/CLI compatible with the selected Xcode. Xcode 27
-replaces `Simulator.app` with `DeviceHub.app`; the missing old application is not
-evidence of a broken Xcode installation. Expo SDK 54 does not support that change.
-[Expo recommends SDK 58 for Xcode 27](https://github.com/expo/expo/issues/52063),
-including Device Hub and simulator-install compatibility fixes. Upgrade the app's
-SDK and matching dependencies rather than trying to restore `Simulator.app`.
-Missing host tooling or devices must be fixed outside the factory; implementation
+Verification is behavior-first, not an exact-version audit. If the current
+candidate runs in an available browser or simulator and that target covers the
+approved behavior, version warnings alone must not block delivery. Agents must
+not add arbitrary checks such as requiring exactly JDK 17 before trying the real
+command, demand an NDK for browser testing, or require both native platforms just
+because the framework supports them. Explicit platform, native-only, and native
+build requirements still need their own evidence; a browser pass cannot waive them.
+
+An empty `adb devices` list does not mean no emulator is installed. Discover AVDs
+and iOS simulators before declaring them unavailable; preparation/device tooling
+can boot an installed target. On newer Xcode releases, use working `simctl` and
+device tooling rather than demanding a legacy `Simulator.app` path.
+
+If a required native build actually fails, select an already-installed compatible
+JDK (including Android Studio's bundled JDK) or make in-scope project compatibility
+fixes. Report an infrastructure blocker only when an observed failure prevents
+required verification and no suitable target or project repair can cover it.
+Missing host-wide tools must still be installed outside the factory; implementation
 must not use system package managers or change host-wide installations.
 
 The final exploration confirmation authorizes the issue plan and an automatic
@@ -117,7 +132,8 @@ implementation-level design details or edit the repository.
 
 Every successful implementation returns `verification`, validated by
 [`src/contracts/project.ts`](../src/contracts/project.ts), containing at least one
-meaningful deterministic check and all required web/native QA targets. Commands
+meaningful deterministic check and enough runnable QA targets to cover the approved
+behavior and explicit platform requirements. Commands
 must match the actual implemented project, including newly created scripts. The
 controller captures the candidate before executing those checks and starting QA;
 agent claims are not verification evidence. Each repair supplies its own fresh
@@ -148,9 +164,10 @@ testing; it has no general research capability. Prompt guidance does not add too
 or bypass these boundaries.
 
 Source-generating setup must finish during implementation, before the controller
-captures the candidate. For Expo, this includes prebuild and package-script
-updates that `expo run:ios`/`expo run:android` would otherwise make during native
-preparation. Checks and target preparation must preserve captured source,
+captures the candidate. For Expo native-build verification, this includes prebuild
+and package-script updates that `expo run:ios`/`expo run:android` would otherwise
+make during native preparation. Browser or supported existing-runtime verification
+does not require prebuild. Checks and target preparation must preserve captured source,
 manifests, lockfiles, and tests; ignored build outputs may change.
 
 Implementation may change any non-protected repository path within the confirmed
@@ -160,12 +177,20 @@ scaffolding, dependency installation, and verification; no factory API key or
 GitHub credential environment is passed to project commands.
 
 Web QA uses `agent-browser` from PATH; native iOS/Android QA uses `agent-device`.
-Web servers must use a dedicated strict port. Native preparation must build and
-install each candidate on the selected test device. Required targets get fresh
+Web servers must use a dedicated strict port. Native preparation must make the
+current candidate available in the selected app/runtime, building and installing
+when needed rather than enforcing a rebuild solely for toolchain checks. A
+supported existing runtime must load this candidate, not stale installed code.
+Required targets get fresh
 open, snapshot, and screenshot evidence each round. Missing tooling or native
 builds incompatible with the selected execution mode block the workflow, rather than silently
 disabling isolation or substituting an unrelated app/server. Cross-domain web
 login journeys are not supported yet.
+
+A mobile target's optional `device` accepts a device name, iOS simulator UDID,
+or Android emulator serial such as `emulator-5554`. The controller uses the
+matching agent-device selector (`--device`, `--udid`, or `--serial`). Omit it to
+let the installed device tooling select a target.
 
 Before web QA starts, the controller waits for a successful HTTP response (2xx/3xx)
 from each target without an automatic startup deadline. It does not follow

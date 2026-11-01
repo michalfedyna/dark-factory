@@ -29,7 +29,14 @@ export const verificationPlanSchema = z
             platform: z.enum(['ios', 'android']),
             app: z.string().trim().min(1),
             prepare: command,
-            device: z.string().trim().min(1).optional(),
+            device: z
+              .string()
+              .trim()
+              .min(1)
+              .describe(
+                'Device name, iOS simulator UDID, or Android emulator serial (emulator-N). Omit to let device tooling select an available target.',
+              )
+              .optional(),
           }),
         ]),
       )

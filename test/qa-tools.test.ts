@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalSandbox } from '@mastra/core/workspace';
 import { afterEach, expect, test } from 'vitest';
+import type { VerificationProject } from '../src/contracts/project.js';
 import { createEvidence } from '../src/delivery/evidence.js';
 import { createQaTools } from '../src/tools/qa.js';
 import { qaResultSchema } from '../src/tools/qa-command.js';
@@ -35,7 +36,7 @@ async function setup(badImage = false) {
   const evidence = createEvidence(join(directory, 'evidence'), 'candidate', 1);
   const browserConfig = join(directory, 'browser.json');
   await writeFile(browserConfig, '{}');
-  const project = {
+  const project: VerificationProject = {
     ...projectPlan,
     browserCommand: executable,
     deviceCommand: executable,
@@ -216,6 +217,35 @@ test('mobile QA invokes agent-device with the configured native platform and dev
   ]);
   expect(evidence.records[0]?.kind).toBe('device');
 });
+test.each([
+  ['ios', '3F85C83A-2821-4DB5-A41F-50F19E6FE553', '--udid'],
+  ['android', 'emulator-5580', '--serial'],
+  ['android', 'Resizable Experimental', '--device'],
+  ['ios', undefined, undefined],
+] as const)(
+  'mobile QA selects %s target %s with the correct CLI selector',
+  async (platform, device, flag) => {
+    const { tools, options, invocation } = await setup();
+    const target = options.project.targets[1]!;
+    if (target.kind !== 'mobile') throw new Error('Expected a mobile target.');
+    options.project.targets = [
+      { ...target, platform, ...(device ? { device } : { device: undefined }) },
+    ];
+    await tools.agent_device!.execute!(
+      { targetId: 'ios', operation: 'open', args: [] },
+      {},
+    );
+    expect((await invocation()).args).toEqual([
+      'open',
+      'com.example.app',
+      '--session',
+      'run-r1-ios',
+      '--platform',
+      platform,
+      ...(flag && device ? [flag, device] : []),
+    ]);
+  },
+);
 test.each([
   ['open', ['https://unapproved.example']],
   ['snapshot', ['--session', 'other']],
