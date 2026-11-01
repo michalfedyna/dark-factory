@@ -9,7 +9,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { LocalSandbox } from '@mastra/core/workspace';
 import { expect, test } from 'vitest';
+import { z } from 'zod';
 import {
   deliveryResultSchema,
   deliveryStateSchema,
@@ -27,10 +29,16 @@ import {
 test.each([
   ['chat', 'delivery', 1, undefined],
   ['responses', 'delivery', 1, undefined],
+  ...(z.object({ available: z.boolean() }).parse(LocalSandbox.detectIsolation())
+    .available
+    ? [['responses', 'delivery-native', 1, undefined] as const]
+    : []),
   ['chat', 'delivery-responsive', 1, undefined],
   ['responses', 'delivery-responsive', 1, undefined],
   ['responses', 'delivery-qa-repair', 2, undefined],
   ['responses', 'delivery-check-repair', 2, undefined],
+  ['chat', 'delivery-server-repair', 2, undefined],
+  ['responses', 'delivery-server-repair', 2, undefined],
   ['chat', 'delivery-review-repair', 2, undefined],
   ['responses', 'delivery', 1, 'dev'],
   ['responses', 'delivery', 1, 'start'],
@@ -62,6 +70,21 @@ test.each([
       const bin = await installQaAutomation(directory);
       await installPublicationAutomation(directory, bin, base);
       const plan = structuredClone(uiProjectPlan);
+      const port = await availablePort();
+      const web = plan.targets.find((target) => target.kind === 'web');
+      if (!web || web.kind !== 'web') throw new Error('Missing web fixture.');
+      web.url = `http://127.0.0.1:${port}`;
+      web.start.args = [
+        '-e',
+        [
+          ...(mode === 'delivery-server-repair'
+            ? [
+                "if (require('node:fs').readFileSync('feature.txt', 'utf8') === 'implemented') { console.error('unable to start FSEvent stream'); process.exit(1); }",
+              ]
+            : []),
+          `require('node:http').createServer((_req, res) => res.end('ready')).listen(${port}, '127.0.0.1');`,
+        ].join('\n'),
+      ];
       if (mode === 'delivery-check-repair')
         plan.checks[0]!.args = [
           '-e',
@@ -77,6 +100,7 @@ test.each([
         cwd: join(source, 'nested'),
         api,
         mode,
+        ...(mode === 'delivery-native' ? { isolation: 'native' as const } : {}),
         ...(npmScript ? { npmScript } : {}),
         issue: 'Export filtered issues',
         path: `${bin}:${process.env.PATH ?? ''}`,
@@ -158,7 +182,8 @@ test.each([
           findings: [
             expect.objectContaining({
               source:
-                mode === 'delivery-qa-repair'
+                mode === 'delivery-qa-repair' ||
+                mode === 'delivery-server-repair'
                   ? 'qa'
                   : mode === 'delivery-check-repair'
                     ? 'checks'
@@ -179,6 +204,23 @@ test.each([
           'Expected repaired feature.',
         );
       }
+      if (mode === 'delivery-server-repair') {
+        const repair = implementations[1]!.payload?.repair as {
+          checkLogs: { checkId: string; exitCode: number; excerpt: string }[];
+        };
+        expect(repair.checkLogs).toHaveLength(1);
+        expect(repair.checkLogs[0]).toMatchObject({
+          checkId: 'qa-server-web',
+          exitCode: 1,
+        });
+        expect(repair.checkLogs[0]?.excerpt).toContain(
+          'unable to start FSEvent stream',
+        );
+        expect(contexts.filter(({ role }) => role === 'qa')).toHaveLength(1);
+        expect(contexts.filter(({ role }) => role === 'review')).toHaveLength(
+          1,
+        );
+      }
       const input = JSON.parse(
         await readFile(join(result.runDirectory, 'input.json'), 'utf8'),
       ) as {
@@ -191,6 +233,9 @@ test.each([
         githubRepo: 'example/project',
       });
       expect(input.brief).toEqual(brief);
+      expect(input).toMatchObject({
+        sandbox: { isolation: mode === 'delivery-native' ? 'native' : 'none' },
+      });
       expect(result.runDirectory).toBe(
         join(await realpath(source), '.darkfactory/runs', result.runId),
       );

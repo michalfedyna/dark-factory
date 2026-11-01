@@ -35,6 +35,7 @@ export function createRunArtifacts(directory: string) {
       brief: IssueBrief;
       config: Project;
       model: FactoryConfig['model'];
+      sandbox: FactoryConfig['sandbox'];
       baseRevision: string;
     }) => json('input.json', input, true),
     preview: (markdown: string) =>

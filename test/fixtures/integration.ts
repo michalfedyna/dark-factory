@@ -12,6 +12,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
+import type { FactoryConfig } from '../../src/config/schema.js';
 import { hostCommand } from '../../src/integrations/git/command.js';
 import { brief } from './brief.js';
 
@@ -102,6 +103,7 @@ export async function startCompiledFactory(options: {
   npmScript?: 'dev' | 'start';
   path?: string;
   timeoutMs?: number;
+  isolation?: FactoryConfig['sandbox']['isolation'];
 }) {
   const { directory, source, api, issue, mode = 'normal' } = options;
   const port = await availablePort();
@@ -112,6 +114,9 @@ export async function startCompiledFactory(options: {
     configPath,
     JSON.stringify({
       model: { api, baseUrl: `http://127.0.0.1:${port}/v1` },
+      ...(options.isolation
+        ? { sandbox: { isolation: options.isolation } }
+        : {}),
       observer: {
         enabled: options.observerEnabled ?? true,
         intervalMs: 1_000,

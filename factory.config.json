@@ -17,5 +17,8 @@
     "intervalMs": 15000,
     "timeoutMs": 10000
   },
+  "sandbox": {
+    "isolation": "none"
+  },
   "sessionTimeoutMs": 1800000
 }

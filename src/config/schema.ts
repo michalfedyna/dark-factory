@@ -32,6 +32,11 @@ export const factoryConfigSchema = z
         readyTimeoutMs: z.number().int().min(100).max(120_000).default(20_000),
       })
       .prefault({}),
+    sandbox: z
+      .strictObject({
+        isolation: z.enum(['none', 'native']).default('none'),
+      })
+      .prefault({}),
     sessionTimeoutMs: z
       .number()
       .int()

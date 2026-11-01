@@ -29,9 +29,11 @@ step. Prompts and progress remain on stderr.
    QA, install `agent-device`, run `agent-device doctor`, and prepare Xcode/iOS
    Simulator or Android SDK/emulators. Use test accounts and disposable app data.
    These CLIs are optional host prerequisites, not factory browser/UI dependencies.
-4. Install the native sandbox backend: Seatbelt on macOS or Bubblewrap on Linux.
-   Project execution fails closed when native isolation is unavailable. Configure
-   only the factory's model/router transport, using an external config path if needed.
+4. Project commands run on the host by default for compatibility. For optional
+   native isolation, set `sandbox.isolation` to `"native"` and install Seatbelt on
+   macOS or Bubblewrap on Linux. Explicit native mode fails closed when unavailable;
+   it never silently falls back to host execution. Model/router transport and this
+   execution policy use the factory config, which may live outside the repository.
 
 ```sh
 cd /path/to/your-app
@@ -81,17 +83,30 @@ checks, or publication, even if a plan is present. Missing scaffolding is
 implementation work.
 
 Implementation may change any non-protected repository path within the confirmed
-brief. Review independently checks scope. Native-isolated project sandboxes allow
-network access for scaffolding, dependency installation, and verification; no
-factory API key or GitHub credential environment is passed to project commands.
+brief. Review independently checks scope. Mastra project sandboxes run on the host
+unless native isolation is explicitly enabled. Both modes allow network access for
+scaffolding, dependency installation, and verification; no factory API key or
+GitHub credential environment is passed to project commands.
 
 Web QA uses `agent-browser` from PATH; native iOS/Android QA uses `agent-device`.
 Web servers must use a dedicated strict port. Native preparation must build and
 install each candidate on the selected test device. Required targets get fresh
 open, snapshot, and screenshot evidence each round. Missing tooling or native
-builds incompatible with the sandbox block the workflow, rather than silently
+builds incompatible with the selected execution mode block the workflow, rather than silently
 disabling isolation or substituting an unrelated app/server. Cross-domain web
 login journeys are not supported yet.
+
+Before web QA starts, the controller waits for a successful HTTP response (2xx/3xx)
+from each target, bounded by that target's `start.timeoutMs`. It does not follow
+redirects during readiness checks. A refused connection, failing response, or
+startup crash cannot count as acceptance evidence. Server startup failures and
+exits during QA retain the command and stdout/stderr as failed, revision-bound
+`qa-server-<target-id>` check records. The controller marks criteria unverified and
+returns those failures and log excerpts to implementation within the same repair
+budget; QA and review do not approve that attempt. Cancellation is not a defect.
+Prefer serving the checked production build for web QA. On macOS, Turbopack's
+FSEvents watcher can fail when native Seatbelt isolation is enabled; use a
+compatible serving command in that mode instead of changing the execution policy.
 
 Responsive web QA uses the same web target at different sizes. The browser tool's
 `viewport` operation accepts `[width, height]` as integer strings from 1 to 10000
@@ -147,7 +162,7 @@ No factory API key or GitHub credential environment is passed to project command
 
 After exploration confirmation and pinned-base validation, the workflow creates its private run directory at
 `<git-root>/.darkfactory/runs/<run-id>/`. No separate issue files are created.
-Run directories retain `input.json`, `state.json` (including each candidate's verification plan), round command records, PNG
+Run directories retain `input.json` (including the sandbox execution policy), `state.json` (including each candidate's verification plan), round command records, PNG
 screenshots, a PR preview, the isolated checkout, and `result.json`. They are
 private local artifacts. Git metadata is kept outside the agent's filesystem.
 Sandboxes/background processes and run-owned browser/device sessions are stopped
@@ -180,7 +195,10 @@ Saved state is diagnostic evidence, not a restart API; a new invocation is a new
 run and requires fresh exploration confirmation. Hands-off delivery is the default,
 not an opt-in publication flag.
 
-LocalSandbox/native isolation is **not a safe boundary for hostile repositories**.
+Default host execution has **no OS isolation**: generated commands can read or
+modify files with your account's permissions beyond the run checkout. The private
+HOME and separate checkout are organizational boundaries, not access controls.
+Optional native isolation is also **not a safe boundary for hostile repositories**.
 In particular, Seatbelt permits broad host reads, and local browser/device CLIs
 need host access. `allowedPaths` is a commit gate, not a host filesystem ACL.
 QA commands are constrained but apps and project execution are trusted local code.

@@ -8,11 +8,13 @@ import {
   type CommandResult,
 } from '@mastra/core/workspace';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { z } from 'zod';
 import { factoryConfigSchema } from '../src/config/schema.js';
 import type { DeliveryRound } from '../src/contracts/delivery.js';
 import type { DeliveryOptions } from '../src/delivery/context.js';
 import { createDeliveryEnvironment } from '../src/delivery/environment.js';
 import { createDeliveryRuntime } from '../src/delivery/runtime.js';
+import { QaTargetFailure } from '../src/delivery/qa-session.js';
 import {
   createRunRepository,
   readBase,
@@ -43,6 +45,12 @@ vi.mock('@mastra/core/workspace', async (importOriginal) => {
 });
 const environments: ReturnType<typeof createDeliveryEnvironment>[] = [];
 const directories: string[] = [];
+const nativeIsolation = z
+  .object({
+    available: z.boolean(),
+    backend: z.enum(['none', 'seatbelt', 'bwrap']),
+  })
+  .parse(LocalSandbox.detectIsolation());
 const webTarget = {
   id: 'web',
   kind: 'web' as const,
@@ -78,6 +86,9 @@ function deferred<T>() {
 }
 beforeEach(() => {
   sandboxInstances.length = 0;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+    Promise.resolve(new Response(null, { status: 200 })),
+  );
   vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValue({
     available: true,
     backend: 'seatbelt',
@@ -110,7 +121,10 @@ afterEach(async () => {
   );
 });
 
-async function setup(project = projectPlan) {
+async function setup(
+  project = projectPlan,
+  sandbox = factoryConfigSchema.parse({}).sandbox,
+) {
   const source = await mkdtemp(join(tmpdir(), 'darkfactory-environment-'));
   directories.push(source);
   const controller = new AbortController();
@@ -122,6 +136,7 @@ async function setup(project = projectPlan) {
       githubRepo: project.githubRepo,
     },
     model: factoryConfigSchema.parse({}).model,
+    sandbox,
     apiKey: 'private-key',
     runId: 'run',
     signal: controller.signal,
@@ -231,8 +246,49 @@ test('a moved base still blocks before acquiring mutable resources', async () =>
   expect(sandboxInstances).toHaveLength(0);
 });
 
-test('native isolation is still required before implementation can run', async () => {
+test('host execution does not require or detect a native isolation backend', async () => {
   const { environment, options } = await setup();
+  const detection = vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValue({
+    available: false,
+    backend: 'none',
+    message: 'Unavailable',
+  });
+  await environment.prepare(brief, options.signal);
+  expect(detection).not.toHaveBeenCalled();
+  const run = environment.requireRun();
+  expect(run.implementationSandbox.isolation).toBe('none');
+  expect(run.projectSandbox.isolation).toBe('none');
+  expect(
+    JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
+  ).toMatchObject({ sandbox: { isolation: 'none' } });
+});
+
+test.skipIf(!nativeIsolation.available)(
+  'native isolation is applied to implementation and project commands when requested',
+  async () => {
+    const { backend } = nativeIsolation;
+    const { environment, options } = await setup(projectPlan, {
+      isolation: 'native',
+    });
+    vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValue({
+      available: true,
+      backend,
+      message: 'Available',
+    });
+    await environment.prepare(brief, options.signal);
+    const run = environment.requireRun();
+    expect(run.implementationSandbox.isolation).toBe(backend);
+    expect(run.projectSandbox.isolation).toBe(backend);
+    expect(
+      JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
+    ).toMatchObject({ sandbox: { isolation: 'native' } });
+  },
+);
+
+test('requested native isolation fails closed when unavailable', async () => {
+  const { environment, options } = await setup(projectPlan, {
+    isolation: 'native',
+  });
   vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValueOnce({
     available: false,
     backend: 'none',
@@ -327,7 +383,9 @@ test('QA failure closes automation with a fresh signal and stops servers exactly
     .spyOn(run.automationSandbox, 'executeCommand')
     .mockResolvedValue(commandPassed);
   const stop = vi.spyOn(run.projectSandbox, 'stop').mockResolvedValue();
-  await expect(session.start(options.signal)).rejects.toThrow('Server failed');
+  await expect(session.start(options.signal)).rejects.toThrow(
+    'QA server second failed',
+  );
   controller.abort();
   await session.close();
   const cleanupSignal = closeCommand.mock.calls[0]?.[2]?.abortSignal;
@@ -370,7 +428,7 @@ test('a server returned after session closure is killed and cannot continue QA',
   spawning.resolve(server);
   await rejected;
   expect(server.kill).toHaveBeenCalledOnce();
-  expect(() => session.assertRunning()).toThrow('not active');
+  await expect(session.assertRunning()).rejects.toThrow('not active');
 });
 
 test('QA cleanup failure still attempts every acquired environment resource', async () => {
@@ -392,7 +450,9 @@ test('QA cleanup failure still attempts every acquired environment resource', as
   );
   const destroySandbox = vi.spyOn(LocalSandbox.prototype, 'destroy');
   const destroyWorkspace = vi.spyOn(Workspace.prototype, 'destroy');
-  await expect(session.start(options.signal)).rejects.toThrow('Server failed');
+  await expect(session.start(options.signal)).rejects.toThrow(
+    'QA server web failed',
+  );
   await expect(environment.close()).rejects.toThrow('Stop failed');
   expect(destroySandbox.mock.contexts).toEqual(
     expect.arrayContaining([run.projectSandbox, run.automationSandbox]),
@@ -400,4 +460,112 @@ test('QA cleanup failure still attempts every acquired environment resource', as
   expect(destroyWorkspace).toHaveBeenCalledTimes(2);
   // The rejected close promise is already asserted above.
   environments.splice(environments.indexOf(environment), 1);
+});
+
+async function setupQaServer() {
+  const setupResult = await setup({ ...projectPlan, targets: [webTarget] });
+  const { environment, options, candidate } = setupResult;
+  await environment.prepare(brief, options.signal);
+  const run = environment.requireRun();
+  const resources = environment.beginRound(candidate());
+  const server = new QaServer();
+  const spawn = vi
+    .spyOn(run.projectSandbox.processes, 'spawn')
+    .mockResolvedValue(server);
+  vi.spyOn(run.projectSandbox, 'stop').mockResolvedValue();
+  vi.spyOn(run.automationSandbox, 'executeCommand').mockResolvedValue(
+    commandPassed,
+  );
+  return { ...setupResult, ...resources, server, spawn };
+}
+
+test('web QA waits through refused connections and unavailable responses before starting', async () => {
+  const { qaSession, options, spawn } = await setupQaServer();
+  vi.mocked(fetch)
+    .mockRejectedValueOnce(new TypeError('Connection refused'))
+    .mockResolvedValueOnce(new Response(null, { status: 503 }));
+  await qaSession.start(options.signal);
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(webTarget.url);
+  const request = vi.mocked(fetch).mock.calls[0]?.[1];
+  expect(request?.redirect).toBe('manual');
+  expect(request?.signal).toBeInstanceOf(AbortSignal);
+  expect(spawn).toHaveBeenCalledOnce();
+  await expect(qaSession.assertRunning()).resolves.toBeUndefined();
+});
+
+test.each([0, 1])(
+  'an exited QA server retains its command and output as failed revision-bound evidence (exit %s)',
+  async (exitCode) => {
+    const { qaSession, options, evidence, server } = await setupQaServer();
+    server.exitCode = exitCode;
+    server.emitStdout('Ready\n');
+    server.emitStderr('unable to start FSEvent stream\n');
+    await expect(qaSession.start(options.signal)).rejects.toBeInstanceOf(
+      QaTargetFailure,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    const record = evidence.records[0]!;
+    expect(record).toMatchObject({
+      kind: 'check',
+      targetId: 'web',
+      operation: 'qa-server-web',
+      exitCode: 1,
+      revision: 'revision',
+    });
+    expect(JSON.parse(await readFile(record.path, 'utf8'))).toMatchObject({
+      output: {
+        start: webTarget.start,
+        exitCode,
+        stdout: 'Ready\n',
+        stderr: 'unable to start FSEvent stream\n',
+      },
+    });
+  },
+);
+
+test('QA readiness has the configured startup deadline, even when a live server never responds', async () => {
+  const { qaSession, options, evidence } = await setupQaServer();
+  vi.mocked(fetch).mockRejectedValue(new TypeError('Connection refused'));
+  await expect(qaSession.start(options.signal)).rejects.toBeInstanceOf(
+    QaTargetFailure,
+  );
+  expect(await readFile(evidence.records[0]!.path, 'utf8')).toContain(
+    'did not respond within 1000ms',
+  );
+});
+
+test('cancellation during readiness is not reported as a repairable server defect', async () => {
+  const { qaSession, options, controller, evidence } = await setupQaServer();
+  const requested = deferred<void>();
+  vi.mocked(fetch).mockImplementation(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        requested.resolve();
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(new Error('Readiness request aborted')),
+          { once: true },
+        );
+      }),
+  );
+  const starting = qaSession.start(options.signal);
+  const rejected = expect(starting).rejects.toThrow('Stopped by user');
+  await requested.promise;
+  controller.abort(new Error('Stopped by user'));
+  await rejected;
+  expect(evidence.records).toEqual([]);
+});
+
+test('a server that exits during QA invalidates verification and retains its crash output', async () => {
+  const { qaSession, options, server, evidence } = await setupQaServer();
+  await qaSession.start(options.signal);
+  server.emitStderr('Server crashed during verification');
+  server.exitCode = 1;
+  await expect(qaSession.assertRunning()).rejects.toBeInstanceOf(
+    QaTargetFailure,
+  );
+  expect(await readFile(evidence.records[0]!.path, 'utf8')).toContain(
+    'Server crashed during verification',
+  );
 });

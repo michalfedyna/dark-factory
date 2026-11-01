@@ -14,6 +14,7 @@ import type { EvidenceRecorder } from './evidence.js';
 export interface DeliveryOptions {
   repository: Awaited<ReturnType<typeof inspectRepository>>;
   model: FactoryConfig['model'];
+  sandbox: FactoryConfig['sandbox'];
   apiKey: string;
   runId: string;
   signal: AbortSignal;
@@ -39,7 +40,7 @@ export interface RunResources {
 
 export interface QaSession {
   start: (signal: AbortSignal) => Promise<void>;
-  assertRunning: () => void;
+  assertRunning: () => Promise<void>;
   close: () => Promise<void>;
 }
 

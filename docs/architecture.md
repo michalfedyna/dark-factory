@@ -35,7 +35,7 @@ CLIProxyAPI remains the model transport; it is not a user interface.
 
 ## Flow
 
-1. `dark start` validates transport config and loads the adjacent `.env`. An optional
+1. `dark start` validates factory config and loads the adjacent `.env`. An optional
    `--issue` is validated before startup; otherwise the terminal prompts for it.
    Inspect Git metadata from the CLI's launch directory, not the config directory.
    For the factory's npm `dev`/`start` scripts, use npm's `INIT_CWD` to preserve
@@ -59,7 +59,7 @@ CLIProxyAPI remains the model transport; it is not a user interface.
 6. Validate the final issue brief with Zod and pass it directly to preparation.
    It stays in memory; there is no issue-file writer or separate save step.
 7. Require a confirmed, ready brief, recheck the pinned base, and prepare the
-   run-owned checkout and native-isolated workspaces. No inspection agent or
+   run-owned checkout and workspaces using the configured execution mode. No inspection agent or
    pre-implementation command plan is required. Implementation owns dependency
    setup and app scaffolding, then returns actual check commands and web/native
    targets for its candidate. Run checks, QA, and review in a bounded repair cycle.
@@ -245,28 +245,31 @@ a custom command execution layer. See the
 
 | Module                                  | Responsibility                                                                                                  |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `delivery/preparation.ts`               | Require a confirmed brief, validate Git metadata, recheck the pinned base, and require isolation.               |
+| `delivery/preparation.ts`               | Require a confirmed brief, recheck the pinned base, and resolve the configured execution mode.                  |
 | `delivery/environment.ts`               | Acquire resources, bind candidate verification plans to round resources, and clean up even after partial setup. |
 | `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                |
 | `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                |
 | `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                   |
-| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                               |
+| `delivery/qa-session.ts`                | Own round-specific automation sessions, server readiness, and revision-bound server failure logs.               |
 | `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                     |
 | `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.     |
 | `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                             |
 | `delivery/finish.ts`, `pull-request.ts` | Local preview/result, automatic gated publication, and PR sections. GitHub side effects stay in its adapter.    |
 
 Factory configuration (`FactoryConfig`) controls model transport, observation,
-router lifecycle, and the whole-run deadline. `Project` holds Git metadata,
+router lifecycle, sandbox execution policy, and the whole-run deadline. `Project` holds Git metadata,
 repository-wide non-protected change scope, network policy, and QA tool commands.
-Project sandboxes allow network access for dependency installation and verification.
+Project sandboxes default to host execution (`sandbox.isolation: "none"`) for
+compatibility. Opt-in `"native"` mode requires an available Seatbelt/Bubblewrap
+backend and fails closed rather than falling back. Both modes allow network access
+for dependency installation and verification; neither inherits factory credentials.
 Their PATH prefers the factory's active Node installation over HOME-dependent
 version-manager shims while retaining a private run-owned HOME.
 Implementation owns setup and returns a `VerificationPlan` with actual checks and
 QA targets after implementing or scaffolding the app. Each round combines that
 candidate's plan with project settings as a `VerificationProject`; no commands or
 targets are required before implementation. `input.json` stores project settings
-under `config`; each implementation result in `state.json` stores its verification
+under `config` and the requested execution policy under `sandbox`; each implementation result in `state.json` stores its verification
 plan. Live resources remain outside serializable workflow state.
 
 ### Resource and state ownership
@@ -281,6 +284,9 @@ plan. Live resources remain outside serializable workflow state.
   verification plan, evidence recorder, and QA session. QA rejects a context for
   another round or revision. Repairs cannot reuse old commands, targets, or evidence.
 - QA owns configured server handles and automation session names for that round.
+  Web targets must respond within their startup deadline before the QA agent runs.
+  Server failures become failed check evidence and controller-authored unverified
+  criterion results, returning logs to implementation without giving QA file access.
   It closes sessions and stops project processes in `finally`, including partial
   server startup. Cleanup uses a separate 10-second signal and 8-second command
   timeout, even when the run is cancelled. Repeated close calls share completion.

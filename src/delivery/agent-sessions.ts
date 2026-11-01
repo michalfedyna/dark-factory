@@ -17,6 +17,7 @@ import type {
   RunResources,
 } from './context.js';
 import { currentRound } from './state.js';
+import { QaTargetFailure } from './qa-session.js';
 
 /** Builds role-specific agent inputs and bounds each live agent session. */
 export function createDeliveryAgents(options: DeliveryOptions) {
@@ -75,8 +76,31 @@ export function createDeliveryAgents(options: DeliveryOptions) {
           signal,
           ...observation,
         });
-        round.qaSession.assertRunning();
+        await round.qaSession.assertRunning();
         return report;
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!(error instanceof QaTargetFailure)) throw error;
+        return {
+          verdict: 'changes-requested',
+          criteria: state.brief.acceptanceCriteria.map(({ id }) => ({
+            id,
+            status: 'blocked',
+            evidenceIds: [error.evidence.id],
+            notes:
+              'The configured QA server failed. Acceptance behavior was not verified.',
+          })),
+          findings: [
+            {
+              source: 'qa',
+              kind: 'defect',
+              severity: 'blocking',
+              description: error.message,
+              criterionId: null,
+              evidenceIds: [error.evidence.id],
+            },
+          ],
+        };
       } finally {
         await round.qaSession.close();
       }

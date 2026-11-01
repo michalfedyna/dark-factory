@@ -20,6 +20,7 @@ describe('factory configuration', () => {
     expect(config.model.id).toBe('gpt-6.1-sol');
     expect(config.model.api).toBe('responses');
     expect(config.router.managed).toBe(true);
+    expect(config.sandbox.isolation).toBe('none');
     expect(config.observer).toEqual({
       enabled: true,
       intervalMs: 15_000,
@@ -38,6 +39,9 @@ describe('factory configuration', () => {
     { observer: { timeoutMs: 0 } },
     { observer: { modelId: ' ' } },
     { observer: { typo: true } },
+    { sandbox: { isolation: 'auto' } },
+    { sandbox: { isolation: false } },
+    { sandbox: { typo: true } },
   ])('rejects invalid configuration %j', (input) => {
     expect(factoryConfigSchema.safeParse(input).success).toBe(false);
   });
@@ -48,6 +52,12 @@ describe('factory configuration', () => {
         model: { baseUrl: 'https://example.com/v1' },
       }).success,
     ).toBe(true);
+  });
+  test('allows explicitly opting into native isolation', () => {
+    expect(
+      factoryConfigSchema.parse({ sandbox: { isolation: 'native' } }).sandbox
+        .isolation,
+    ).toBe('native');
   });
   test('allows disabling summaries or selecting a separate observer model', () => {
     expect(

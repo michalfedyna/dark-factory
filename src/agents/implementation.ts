@@ -25,6 +25,7 @@ Verification handoff:
 - Return verification for this candidate: at least one meaningful deterministic check and every web/native target required by the task.
 - Use actual commands and app identifiers from the project you implemented, not no-op checks or an unrelated server/app. Commands run at the repository root; use directory options for nested apps.
 - Web targets need strict-port start commands and matching URLs. Native targets need build/install commands. Require screenshots unless inappropriate; omit targets only for non-UI work.
+- Prefer serving the checked production build for web QA. Native isolation is optional; when enabled, use compatible start commands (for example, Turbopack's macOS FSEvents watcher may be unavailable). Do not change the factory's execution policy to work around a failed server.
 - The controller captures the candidate, then runs checks and starts QA targets independently. Return an updated plan on every successful repair.
 - Independent browser/device QA and screenshots belong to the later QA stage. Do not run them here or treat pending QA as an implementation blocker. Report any local verification limitation in the summary without claiming a pass.
 - Use blockers only for issues that prevent implementation or a usable verification handoff. A blocked result may include a known verification plan; use null when no valid plan can be supplied. Any blocker stops the workflow, even when verification is present.

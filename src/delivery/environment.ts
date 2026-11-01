@@ -67,7 +67,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         revision: candidate.revision,
         project,
         evidence,
-        qaSession: createQaSession(run, project, candidate.round),
+        qaSession: createQaSession(run, project, candidate.round, evidence),
       };
       return round;
     },
@@ -101,6 +101,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         brief,
         config: project,
         model: options.model,
+        sandbox: options.sandbox,
         baseRevision: base,
       });
       signal.throwIfAborted();

@@ -79,6 +79,7 @@ export async function startFactory(
               createDeliveryRuntime({
                 repository,
                 model: config.model,
+                sandbox: config.sandbox,
                 apiKey,
                 runId,
                 signal,

@@ -17,6 +17,8 @@ export async function prepareProject(
   const base = await readBase(project.repository, project.baseBranch, signal);
   if (base !== project.baseRevision)
     throw new Error('The base branch changed since startup. Start a new run.');
+  if (options.sandbox.isolation === 'none')
+    return { project, base, isolation: 'none' as const };
   const detection = z
     .object({
       available: z.boolean(),
@@ -25,7 +27,7 @@ export async function prepareProject(
     .parse(LocalSandbox.detectIsolation());
   if (!detection.available || detection.backend === 'none')
     throw new Error(
-      'Native sandbox isolation is unavailable. Install Seatbelt or Bubblewrap before running project commands.',
+      'Native sandbox isolation is unavailable. Install Seatbelt or Bubblewrap, or set sandbox.isolation to "none" for a trusted repository.',
     );
   const isolation = detection.backend;
   return { project, base, isolation };
