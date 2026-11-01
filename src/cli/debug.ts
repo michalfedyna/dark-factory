@@ -3,6 +3,7 @@ import { stripVTControlCharacters, styleText } from 'node:util';
 import * as prompts from '@clack/prompts';
 import type { DebugEvent } from '../contracts/debug.js';
 import { writeAccentBlock } from './accent-block.js';
+import { errorDetails } from '../diagnostics/errors.js';
 
 function clean(text: string): string {
   return stripVTControlCharacters(text).replace(/\p{Cc}/gu, (character) =>
@@ -39,8 +40,7 @@ function describe(value: unknown): string {
         )
           return '[binary data omitted]';
         if (typeof entry === 'bigint') return entry.toString();
-        if (entry instanceof Error)
-          return { name: entry.name, message: entry.message };
+        if (entry instanceof Error) return errorDetails(entry);
         if (entry instanceof Uint8Array)
           return `[binary: ${entry.byteLength} bytes]`;
         if (typeof entry === 'object' && entry !== null) {

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { runDefault } from '../src/factory/run.js';
 import type { DeliveryRound, Finding } from '../src/contracts/delivery.js';
 import { validateQa } from '../src/delivery/qa-policy.js';
-import { PublicationError } from '../src/integrations/github/publish.js';
+import { PublicationError } from '../src/delivery/publication.js';
 import { brief } from './fixtures/brief.js';
 import { implementation, uiProjectPlan } from './fixtures/delivery.js';
 import {
@@ -21,6 +21,107 @@ const finding = (source: Finding['source'] = 'qa'): Finding => ({
   evidenceIds: ['test'],
 });
 describe('default workflow delivery stages', () => {
+  test.each(['prepare', 'finish'] as const)(
+    '%s failures retain the original cause and a private journal',
+    async (stage) => {
+      const { run, operations } = setup();
+      const cause = new Error(`Private ${stage} failure`);
+      operations[stage].mockRejectedValueOnce(cause);
+      const running = run();
+      await expect(running).rejects.toMatchObject({ cause });
+      await expect(running).rejects.toThrow('failure.json');
+      expect(operations.recordFailure).toHaveBeenCalledWith(
+        stage === 'prepare' ? 'prepare-delivery' : 'publish-delivery',
+        stage === 'prepare'
+          ? null
+          : expect.objectContaining({ status: 'approved' }),
+        cause,
+      );
+    },
+  );
+  test('cleanup failure does not replace a failed stage or its failure journal', async () => {
+    const { run, operations, close } = setup();
+    const cause = new Error('Implementation failed');
+    const cleanup = new Error('Sandbox destroy failed');
+    operations.implement.mockRejectedValueOnce(cause);
+    close.mockRejectedValueOnce(cleanup);
+    await expect(run()).rejects.toMatchObject({
+      cause,
+      message: expect.stringContaining('failed at implement') as unknown,
+    });
+    expect(operations.recordFailure).toHaveBeenCalledOnce();
+    expect(operations.recordCleanup).toHaveBeenCalledWith(
+      'workflow resources',
+      cleanup,
+    );
+    expect(operations.endDiagnostics).toHaveBeenCalledWith('failed');
+  });
+  test('cleanup failure after successful work is journaled with a safe public error', async () => {
+    const { run, operations, close } = setup();
+    close.mockRejectedValueOnce(new Error('Private shutdown failure'));
+    const running = run();
+    await expect(running).rejects.toThrow('failed at cleanup');
+    await expect(running).rejects.not.toThrow('Private shutdown failure');
+    expect(operations.recordFailure).toHaveBeenCalledWith(
+      'cleanup',
+      null,
+      expect.any(Error),
+    );
+    expect(operations.endDiagnostics).toHaveBeenCalledWith('failed');
+  });
+  test('execution diagnostics name completed, skipped, and gate steps with candidate identity', async () => {
+    const { run, operations } = setup();
+    await run();
+    const events = operations.recordStep.mock.calls.map(([event]) => event);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ step: 'explore-issue', status: 'completed' }),
+        expect.objectContaining({
+          step: 'figma-ui',
+          status: 'skipped',
+          reason: 'No linked Figma designs.',
+        }),
+        expect.objectContaining({
+          step: 'implement',
+          status: 'completed',
+          attempt: 1,
+          round: 1,
+          revision: 'revision-1',
+        }),
+        expect.objectContaining({
+          step: 'sandbox-qa',
+          status: 'skipped',
+          reason: 'No blocked criteria require sandbox QA.',
+        }),
+        expect.objectContaining({ step: 'validate-qa', status: 'completed' }),
+        expect.objectContaining({ step: 'delivery-gate', status: 'completed' }),
+        expect.objectContaining({
+          step: 'publish-delivery',
+          status: 'completed',
+        }),
+      ]),
+    );
+    expect(
+      operations.record.mock.calls.some(
+        ([state]) => state.status === 'verifying',
+      ),
+    ).toBe(true);
+    expect(operations.endDiagnostics).toHaveBeenCalledWith('completed');
+  });
+  test('cancellation keeps its outcome even when resource cleanup also fails', async () => {
+    const { options, operations, close } = setup();
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    operations.implement.mockImplementation(() => {
+      controller.abort(new Error('User stopped the run'));
+      return new Promise(() => {});
+    });
+    close.mockRejectedValueOnce(new Error('Destroy failed'));
+    await expect(runDefault(options)).rejects.toThrow('User stopped the run');
+    expect(operations.endDiagnostics).toHaveBeenCalledWith('cancelled');
+    expect(operations.recordCleanup).toHaveBeenCalled();
+    expect(operations.recordFailure).not.toHaveBeenCalled();
+  });
   test('nested workflow failures identify the actual step and private diagnostics without exposing provider errors', async () => {
     const { run, operations, close } = setup();
     const error = new Error('Authorization: Bearer provider-secret');
@@ -255,7 +356,8 @@ describe('default workflow delivery stages', () => {
       });
       await expect(run()).resolves.toMatchObject({
         status: 'blocked',
-        rounds: 1,
+        rounds: 0,
+        attempts: 1,
         reason: 'A required API contract is missing.',
         revision: null,
         summary: null,
@@ -267,6 +369,19 @@ describe('default workflow delivery stages', () => {
       expect(operations.review).not.toHaveBeenCalled();
       expect(operations.summarize).not.toHaveBeenCalled();
       expect(operations.finish.mock.calls[0]?.[0].status).toBe('blocked');
+      expect(
+        operations.finish.mock.calls[0]?.[0].implementationAttempts,
+      ).toEqual([
+        {
+          attempt: 1,
+          result: {
+            summary: 'Cannot proceed.',
+            blockers: ['A required API contract is missing.'],
+            verification,
+          },
+          candidateRound: null,
+        },
+      ]);
       expect(close).toHaveBeenCalledOnce();
     },
   );
@@ -317,7 +432,8 @@ describe('default workflow delivery stages', () => {
       });
     await expect(run()).resolves.toMatchObject({
       status: 'blocked',
-      rounds: 2,
+      rounds: 1,
+      attempts: 2,
       revision: 'revision-1',
       reason: 'The API contract is missing.',
       summary: null,
@@ -326,6 +442,13 @@ describe('default workflow delivery stages', () => {
     expect(operations.qa).toHaveBeenCalledOnce();
     expect(operations.review).toHaveBeenCalledOnce();
     expect(operations.summarize).not.toHaveBeenCalled();
+    expect(
+      operations.finish.mock.calls[0]?.[0].implementationAttempts.at(-1),
+    ).toMatchObject({
+      attempt: 2,
+      candidateRound: null,
+      result: { summary: 'Cannot repair within scope.' },
+    });
   });
   test.each([
     {

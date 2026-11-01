@@ -14,7 +14,7 @@ export function renderPullRequest(
   const candidate = [
     `Code candidate: \`${round.revision}\``,
     `Base: \`${state.baseRevision}\``,
-    `Implementation rounds: ${state.round}`,
+    `Implementation attempts: ${state.implementationAttempts.length}; captured rounds: ${state.round}`,
     `QA: ${round.qa?.verdict ?? 'not run'}; review: ${round.review?.verdict ?? 'not run'}.`,
   ].join('\n');
   const checks = round.evidence

@@ -1,10 +1,12 @@
 import type { FactoryConfig } from '../config/schema.js';
+import { toolImagesProcessor } from './tool-images.js';
 
 export function createModelConfig(
   model: FactoryConfig['model'],
   apiKey: string,
 ) {
   return {
+    ...(model.api === 'chat' ? { inputProcessors: [toolImagesProcessor] } : {}),
     model: {
       id: `factory/${model.id}` as const,
       url: model.baseUrl,

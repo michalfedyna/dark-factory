@@ -13,6 +13,7 @@ import {
   summarizeCandidate,
   verifyCandidate,
   verifySandboxCandidate,
+  validateAcceptance,
 } from '../delivery/steps.js';
 import {
   createExploreStep,
@@ -35,11 +36,14 @@ export function createDefaultWorkflow(dependencies: { explore: Explore }) {
     .then(deliveryStep('run-checks', checkCandidate))
     .then(deliveryStep('qa', verifyCandidate))
     .then(deliveryStep('sandbox-qa', verifySandboxCandidate))
+    .then(deliveryStep('validate-qa', validateAcceptance))
     .then(deliveryStep('review', reviewCandidate))
     .then(
-      deliveryStep('delivery-gate', (state) =>
-        Promise.resolve(deliveryGate(state)),
-      ),
+      deliveryStep('delivery-gate', {
+        skip: (state) =>
+          state.status === 'blocked' ? 'Delivery is blocked.' : null,
+        execute: (state) => Promise.resolve(deliveryGate(state)),
+      }),
     )
     .commit();
 

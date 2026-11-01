@@ -13,6 +13,13 @@ export function candidateState(): DeliveryState {
     status: 'repair',
     reason: '',
     summary: null,
+    implementationAttempts: [
+      {
+        attempt: 1,
+        result: structuredClone(implementation),
+        candidateRound: 1,
+      },
+    ],
     history: [
       {
         round: 1,

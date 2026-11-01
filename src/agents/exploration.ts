@@ -9,7 +9,6 @@ import { createFigmaPreviewTools } from '../tools/figma-preview.js';
 import { findFigmaSources } from '../integrations/figma/sources.js';
 import { generateResult } from './generation.js';
 import { createModelConfig } from './model.js';
-import { explorationPreviewProcessor } from './exploration-preview.js';
 
 export type Explore = (
   issue: string,
@@ -85,9 +84,6 @@ export function createExploration(
       name: 'Issue exploration',
       instructions,
       ...createModelConfig(model, apiKey),
-      ...(model.api === 'chat'
-        ? { inputProcessors: [explorationPreviewProcessor] }
-        : {}),
       tools: {
         ask: createAskTool(askAndCollectSources, signal),
         figma: figma.figma,

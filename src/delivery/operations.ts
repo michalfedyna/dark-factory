@@ -4,6 +4,7 @@ import type {
   DeliveryState,
 } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
+import type { RunOutcome, StepEvent } from '../contracts/diagnostics.js';
 
 // Agent results cross an untrusted boundary and are parsed by the workflow.
 export interface DeliveryOperations {
@@ -29,7 +30,10 @@ export interface DeliveryOperations {
   record: (state: DeliveryState) => Promise<void>;
   recordFailure: (
     step: string,
-    state: DeliveryState,
+    state: DeliveryState | null,
     error: unknown,
   ) => Promise<string>;
+  recordStep: (event: StepEvent) => Promise<void>;
+  recordCleanup: (resource: string, error: unknown) => Promise<void>;
+  endDiagnostics: (outcome: RunOutcome) => Promise<void>;
 }

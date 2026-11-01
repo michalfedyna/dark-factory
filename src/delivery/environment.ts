@@ -20,9 +20,20 @@ import { createEvidence } from './evidence.js';
 import { createQaSession } from './qa-session.js';
 import { prepareProject } from './preparation.js';
 import { recordSandboxQaCommands } from './sandbox-qa-evidence.js';
+import { cleanupAll, withCleanup } from '../diagnostics/cleanup.js';
 
 /** Owns live resources, including resources acquired before setup completes. */
 export function createDeliveryEnvironment(options: DeliveryOptions) {
+  const directory = join(
+    options.repository.repository,
+    '.darkfactory',
+    'runs',
+    options.runId,
+  );
+  const artifacts = createRunArtifacts(directory, () => [
+    options.apiKey,
+    options.figmaToken ?? '',
+  ]);
   const lifetime = new AbortController();
   const resources = new Set<{ destroy: () => Promise<void> }>();
   let run: RunResources | undefined;
@@ -40,13 +51,17 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
   };
   return {
     requireRun,
-    recordFailure: (step: string, state: DeliveryState, error: unknown) =>
-      requireRun().artifacts.failure({
+    artifacts,
+    recordFailure: (
+      step: string,
+      state: DeliveryState | null,
+      error: unknown,
+    ) =>
+      artifacts.failure({
         step,
         state,
         error,
         evidence: round?.evidence.records ?? [],
-        secrets: [options.apiKey, options.figmaToken ?? ''],
       }),
     createFigmaWorkspace: () => {
       const run = requireRun();
@@ -120,14 +135,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       );
       signal.throwIfAborted();
       const source = project.repository;
-      const directory = join(source, '.darkfactory', 'runs', options.runId);
-      await mkdir(join(source, '.darkfactory', 'runs'), {
-        recursive: true,
-        mode: 0o700,
-      });
-      signal.throwIfAborted();
-      await mkdir(directory, { mode: 0o700 });
-      const artifacts = createRunArtifacts(directory);
+      await artifacts.initialize();
       await artifacts.input({
         runId: options.runId,
         brief,
@@ -230,14 +238,15 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       if (!closing) {
         lifetime.abort(new Error('Delivery environment closed.'));
         closing = (async () => {
-          try {
-            await round?.qaSession.close();
-          } finally {
-            await Promise.allSettled(
-              [...resources].map((resource) => resource.destroy()),
-            );
-            resources.clear();
-          }
+          const owned = [...resources];
+          resources.clear();
+          await withCleanup(
+            async () => {
+              await round?.qaSession.close();
+            },
+            () => cleanupAll(owned.map((resource) => () => resource.destroy())),
+            (error) => artifacts.cleanup('environment resources', error),
+          );
         })();
       }
       return closing;

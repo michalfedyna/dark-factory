@@ -1,5 +1,8 @@
 import { expect, test } from 'vitest';
-import type { DeliveryState } from '../src/contracts/delivery.js';
+import {
+  deliveryStateSchema,
+  type DeliveryState,
+} from '../src/contracts/delivery.js';
 import { applyReview } from '../src/delivery/policy.js';
 import { currentRound, replaceRound } from '../src/delivery/state.js';
 import { reviewCandidate, verifyCandidate } from '../src/delivery/steps.js';
@@ -20,12 +23,33 @@ test('current-round preconditions reject missing or mismatched history', () => {
     replaceRound(state, { ...currentRound(state), revision: 'other' }),
   ).toThrow('another candidate');
 });
+test('state keeps blocked attempts without breaking candidate-round invariants', () => {
+  const state = candidateState();
+  state.implementationAttempts.push({
+    attempt: 2,
+    result: {
+      summary: 'Cannot repair',
+      blockers: ['Missing contract'],
+      verification: null,
+    },
+    candidateRound: null,
+  });
+  state.status = 'blocked';
+  expect(deliveryStateSchema.safeParse(state).success).toBe(true);
+  expect(deliveryStateSchema.safeParse({ ...state, round: 2 }).success).toBe(
+    false,
+  );
+  expect(
+    deliveryStateSchema.safeParse({ ...state, implementationAttempts: [] })
+      .success,
+  ).toBe(false);
+});
 
 test('QA validates the reported state without mutating the input round', async () => {
   const { operations } = createWorkflowSetup();
   const state = candidateState();
   const before = structuredClone(state);
-  const next = await verifyCandidate(
+  const next = await verifyCandidate.execute(
     state,
     operations,
     new AbortController().signal,
@@ -48,7 +72,7 @@ test('review findings and fallback blockers are applied without mutating history
     verdict: 'changes-requested',
   });
   const before = structuredClone(state);
-  const next = await reviewCandidate(
+  const next = await reviewCandidate.execute(
     state,
     operations,
     new AbortController().signal,
@@ -67,7 +91,7 @@ test('candidate mutations during review invalidate approval', async () => {
   ) as DeliveryState['history'][number]['qa'];
   operations.assertUnchanged.mockRejectedValue(new Error('Candidate changed.'));
   await expect(
-    reviewCandidate(state, operations, new AbortController().signal),
+    reviewCandidate.execute(state, operations, new AbortController().signal),
   ).rejects.toThrow('Candidate changed.');
   expect(operations.review).toHaveBeenCalledOnce();
   expect(operations.assertUnchanged).toHaveBeenCalledExactlyOnceWith(

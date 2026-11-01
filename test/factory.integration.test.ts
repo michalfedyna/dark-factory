@@ -8,6 +8,7 @@ import type { SummarizeProgress } from '../src/contracts/progress.js';
 import {
   createTestRepository,
   startCompiledFactory,
+  findRunDirectory,
 } from './fixtures/integration.js';
 
 async function factory(
@@ -102,7 +103,7 @@ test.each(['chat', 'responses'])(
     try {
       await vi.waitFor(
         () => {
-          expect(run.stderr()).toContain('Which export format?');
+          expect(run.stderr()).toMatch(/Which export format\?[\s\S]*\n>\n$/);
         },
         { timeout: 10_000 },
       );
@@ -129,7 +130,7 @@ test.each(['chat', 'responses'])(
       run.child.stdin.end('Start\n');
       expect(await run.exit, run.stderr()).toEqual([0, null]);
       expect(run.stderr()).toContain(
-        'Observer: Current delivery stage: Implementing (round 1).',
+        'Observer: Current delivery stage: Implementing (attempt 1).',
       );
       const contexts = (
         await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
@@ -213,7 +214,7 @@ test.each([
         );
       } else {
         expect(run.stderr()).toContain(
-          'Observer: Current delivery stage: Implementing (round 1).',
+          'Observer: Current delivery stage: Implementing (attempt 1).',
         );
         expect(run.stderr()).not.toContain('Offline reasoning summary.');
       }
@@ -326,7 +327,15 @@ test.each(['chat', 'responses'])(
       expect(run.stderr()).toContain('Which export format?');
       expect(run.stderr()).toContain('Start implementation?');
       expect(run.stderr()).not.toContain('Preparing delivery');
-      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
+      const artifacts = await findRunDirectory(run.source);
+      await expect(readdir(join(artifacts, 'repository'))).rejects.toThrow();
+      await expect(readFile(join(artifacts, 'input.json'))).rejects.toThrow();
+      expect(
+        JSON.parse(await readFile(join(artifacts, 'execution.json'), 'utf8')),
+      ).toMatchObject({
+        outcome: 'failed',
+        lastStep: { step: 'explore-issue', status: 'failed' },
+      });
       expect(run.stdout()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('test-key');
       await run.assertStopped();
@@ -366,7 +375,15 @@ test('EOF fails without inventing an answer or preparing a repository', async ()
     expect(await run.exit).toEqual([1, null]);
     expect(run.stdout()).toBe('');
     expect(run.stderr()).toContain('Input ended before the workflow finished');
-    await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
+    const artifacts = await findRunDirectory(run.source);
+    await expect(readdir(join(artifacts, 'repository'))).rejects.toThrow();
+    await expect(readFile(join(artifacts, 'input.json'))).rejects.toThrow();
+    expect(
+      JSON.parse(await readFile(join(artifacts, 'execution.json'), 'utf8')),
+    ).toMatchObject({
+      outcome: 'failed',
+      lastStep: { step: 'explore-issue', status: 'failed' },
+    });
     await run.assertStopped();
   } finally {
     await run.clean();
@@ -390,7 +407,8 @@ test.each([
       ).toMatchObject({
         status: 'blocked',
         reason: 'Missing external API contract.',
-        rounds: 1,
+        rounds: 0,
+        attempts: 1,
         revision: null,
         summary: null,
         pullRequestUrl: null,
@@ -478,10 +496,30 @@ test.each(['issue', 'exploration', 'implementation'])(
       run.child.kill('SIGINT');
       expect(await run.exit, run.stderr()).toEqual([130, null]);
       expect(run.stdout()).toBe('');
-      if (stage !== 'implementation')
+      if (stage === 'issue')
         await expect(
           readdir(join(run.source, '.darkfactory')),
         ).rejects.toThrow();
+      else {
+        const artifacts = await findRunDirectory(run.source);
+        expect(
+          JSON.parse(await readFile(join(artifacts, 'execution.json'), 'utf8')),
+        ).toMatchObject({
+          outcome: 'cancelled',
+          lastStep: {
+            step: stage === 'exploration' ? 'explore-issue' : 'implement',
+            status: 'cancelled',
+          },
+        });
+        if (stage === 'exploration') {
+          await expect(
+            readdir(join(artifacts, 'repository')),
+          ).rejects.toThrow();
+          await expect(
+            readFile(join(artifacts, 'input.json')),
+          ).rejects.toThrow();
+        }
+      }
       await run.assertStopped();
     } finally {
       await run.clean();

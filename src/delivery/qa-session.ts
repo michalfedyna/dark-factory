@@ -4,6 +4,7 @@ import type { Evidence } from '../contracts/delivery.js';
 import type { VerificationProject } from '../contracts/project.js';
 import type { QaSession, RunResources } from './context.js';
 import type { EvidenceRecorder } from './evidence.js';
+import { withCleanup } from '../diagnostics/cleanup.js';
 
 type QaTarget = VerificationProject['targets'][number];
 type QaServer = Awaited<ReturnType<LocalSandbox['processes']['spawn']>>;
@@ -135,35 +136,61 @@ export function createQaSession(
       closing = (async () => {
         // Cleanup has its own short deadline, independent of run cancellation.
         const signal = AbortSignal.timeout(10_000);
-        try {
-          await Promise.allSettled(
-            project.targets.map(async (target) => {
-              const session = `${runId}-r${round}-${target.id}`;
-              if (!automationSandbox.executeCommand)
-                throw new Error(
-                  'The automation sandbox must support command execution.',
+        await withCleanup(
+          async () => {
+            const results = await Promise.allSettled(
+              project.targets.map(async (target) => {
+                const session = `${runId}-r${round}-${target.id}`;
+                if (!automationSandbox.executeCommand)
+                  throw new Error(
+                    'The automation sandbox must support command execution.',
+                  );
+                const command =
+                  target.kind === 'web'
+                    ? project.browserCommand
+                    : project.deviceCommand;
+                const args =
+                  target.kind === 'web'
+                    ? ['--config', browserConfig, '--session', session, 'close']
+                    : [
+                        'close',
+                        '--session',
+                        session,
+                        '--platform',
+                        target.platform,
+                      ];
+                const result = await automationSandbox.executeCommand(
+                  command,
+                  args,
+                  { timeout: 8_000, abortSignal: signal },
                 );
-              await automationSandbox.executeCommand(
-                target.kind === 'web'
-                  ? project.browserCommand
-                  : project.deviceCommand,
-                target.kind === 'web'
-                  ? ['--config', browserConfig, '--session', session, 'close']
-                  : [
-                      'close',
-                      '--session',
-                      session,
-                      '--platform',
-                      target.platform,
-                    ],
-                { timeout: 8_000, abortSignal: signal },
-              );
-            }),
-          );
-        } finally {
-          active = false;
-          await projectSandbox.stop();
-        }
+                if (!result.success || result.exitCode !== 0)
+                  throw Object.assign(
+                    new Error(`Could not close QA session ${session}.`),
+                    {
+                      command,
+                      args,
+                      code: result.exitCode,
+                      stdout: result.stdout,
+                      stderr: result.stderr,
+                    },
+                  );
+              }),
+            );
+            for (const [index, result] of results.entries()) {
+              if (result.status === 'rejected')
+                await run.artifacts.cleanup(
+                  `automation session ${project.targets[index]?.id ?? index}`,
+                  result.reason,
+                );
+            }
+          },
+          async () => {
+            active = false;
+            await projectSandbox.stop();
+          },
+          (error) => run.artifacts.cleanup('QA server processes', error),
+        );
       })();
       return closing;
     },

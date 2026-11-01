@@ -11,7 +11,7 @@ export type Activity =
   | {
       kind: 'round';
       round: number;
-      status: 'repair' | 'approved' | 'blocked';
+      status: 'pending' | 'verifying' | 'repair' | 'approved' | 'blocked';
       blockingFindings: number;
       qa: string | null;
       review: string | null;

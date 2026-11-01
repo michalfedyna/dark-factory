@@ -67,22 +67,21 @@ export function deliveryGate(state: DeliveryState): DeliveryState {
     !blocking.length &&
     round.qa?.verdict === 'pass' &&
     round.review?.verdict === 'pass';
-  let reason = '';
-  if (!passed) {
-    if (round.implementation.blockers.length)
-      reason = round.implementation.blockers.join('\n');
-    else if (
-      round.qa?.verdict === 'blocked' ||
-      round.review?.verdict === 'blocked' ||
-      blocking.some((finding) => finding.kind !== 'defect')
-    )
-      reason =
-        blocking.map((finding) => finding.description).join('\n') ||
-        'A question, scope change, or unavailable QA target requires user input.';
-  }
+  const requiresInput =
+    round.implementation.blockers.length > 0 ||
+    round.qa?.verdict === 'blocked' ||
+    round.review?.verdict === 'blocked' ||
+    blocking.some((finding) => finding.kind !== 'defect');
+  const reason = passed
+    ? ''
+    : round.implementation.blockers.join('\n') ||
+      blocking.map((finding) => finding.description).join('\n') ||
+      (requiresInput
+        ? 'A question, scope change, or unavailable QA target requires user input.'
+        : 'Acceptance QA and independent review have not both passed.');
   return {
     ...state,
-    status: passed ? 'approved' : reason ? 'blocked' : 'repair',
+    status: passed ? 'approved' : requiresInput ? 'blocked' : 'repair',
     reason,
   };
 }

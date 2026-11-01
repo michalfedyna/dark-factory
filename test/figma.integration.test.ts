@@ -21,7 +21,7 @@ test.each([
 ] as const)(
   'Figma uses REST and real Mastra repository tools (%s, streaming: %s)',
   async (api, streaming) => {
-    const provider = await createFigmaProvider(api);
+    const provider = await createFigmaProvider(api, 'delivery-figma-images');
     const { directory, config, controller, restFetch } = provider;
     const repository = join(directory, 'repository');
     await mkdir(repository);
@@ -55,7 +55,10 @@ test.each([
       expect(await readFile(join(repository, 'ui-scaffold.tsx'), 'utf8')).toBe(
         'export const Panel = () => null;',
       );
-      expect(restFetch).toHaveBeenCalledOnce();
+      expect(restFetch).toHaveBeenCalledTimes(2);
+      const wire = JSON.stringify(provider.modelRequests);
+      expect(wire).toMatch(/"type":"(?:image_url|input_image)"/);
+      expect(wire).toContain('export.png');
       expect(restFetch.mock.calls[0]?.[1]?.headers).toEqual({
         'X-Figma-Token': 'private-figma-token',
       });

@@ -2,7 +2,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalSandbox } from '@mastra/core/workspace';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import type { VerificationProject } from '../src/contracts/project.js';
 import { createEvidence } from '../src/delivery/evidence.js';
 import { createQaTools } from '../src/tools/qa.js';
@@ -101,6 +101,39 @@ test('web QA invokes agent-browser with a run-scoped session and the approved UR
     targetId: 'web',
   });
 });
+test.each(['ENOENT', 'EACCES'])(
+  'QA spawn failures retain private command, code, stack and cause (%s)',
+  async (code) => {
+    const { tools, options, evidence } = await setup();
+    vi.spyOn(options.automationSandbox, 'executeCommand').mockRejectedValueOnce(
+      Object.assign(new Error('Spawn failed'), {
+        code,
+        cause: new Error('Underlying failure'),
+      }),
+    );
+    const result = await tools.agent_browser!.execute!(
+      { targetId: 'web', operation: 'open', args: [] },
+      {},
+    );
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: 'Could not execute the configured QA tool.',
+    });
+    const log = JSON.parse(
+      await readFile(evidence.records[0]!.path, 'utf8'),
+    ) as unknown;
+    expect(log).toMatchObject({
+      output: {
+        command: options.project.browserCommand,
+        error: {
+          code,
+          stack: expect.stringContaining('qa-tools.test.ts') as unknown,
+          cause: { message: 'Underlying failure' },
+        },
+      },
+    });
+  },
+);
 test.each([
   ['1280', '800'],
   ['390', '844'],

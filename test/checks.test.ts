@@ -121,6 +121,9 @@ test.each([0, 1])(
         status: 'repair',
         reason: '',
         history: [checked],
+        implementationAttempts: [
+          { attempt: 1, result: checked.implementation, candidateRound: 1 },
+        ],
         summary: null,
       });
       const saved: unknown = JSON.parse(

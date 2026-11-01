@@ -9,12 +9,8 @@ The CLI is the only interface. There is no web app or local UI server.
 ## Navigation
 
 - [Setup](#setup), [run](#run), and [configuration](#configuration)
-- [Delivery setup, evidence, and limits](docs/delivery.md) — current behavior
-- [Figma UI agent and REST setup](docs/figma.md) — design-to-code and repository design systems
-- [Documentation subagent](docs/documentation.md) — compact library guides and free, keyless web search
-- [Architecture and code ownership](docs/architecture.md) — current implementation
-- [Issue brief contract](docs/issue-brief.md) — validated exploration output
-- [Target workflow design](docs/Workflow.md) — future design, not an implemented feature list
+- [Output and diagnostics](#output-and-boundaries)
+- [Workflows](#mastra-workflows), [structure](#structure), and [development](#development)
 
 ## Requirements
 
@@ -26,7 +22,6 @@ The CLI is the only interface. There is no web app or local UI server.
 Run inside a trusted Git repository on a local branch with a commit. Project
 commands run on the host by default; native isolation is opt-in. Publication needs
 an authenticated GitHub CLI; UI QA needs the applicable browser/device tools.
-See [workflow setup](docs/delivery.md).
 
 ## Setup
 
@@ -166,7 +161,7 @@ For issues with Figma links, a dedicated UI-only agent first creates or updates
 presentational components and design-system code in the same checkout. Implementation
 receives its handoff and owns all functional wiring and subsequent repairs. Set
 `FIGMA_ACCESS_TOKEN` to read designs through REST; no token is needed for unlinked
-issues. This does not edit Figma files. See [Figma setup and limits](docs/figma.md).
+issues. This does not edit Figma files.
 During exploration, the agent can already view linked screens as PNGs, including
 links supplied in follow-up answers. It keeps questions product-focused; detailed
 design specifications remain the UI agent's responsibility.
@@ -175,7 +170,7 @@ before library/framework implementation. It researches version-matched sources
 through keyless `search_web` and Mastra's `web_fetch`, returning compact guides,
 examples, pitfalls and citations instead of raw pages. Search is best effort and
 may be rate-limited; normal model costs still apply. No search key or new config
-is needed. See [documentation research and limits](docs/documentation.md).
+is needed.
 Implementation supplies a validated verification plan on every candidate, with at
 least one meaningful deterministic check and all required UI targets. No delivery
 config is needed. Project sandboxes allow network access for dependency setup and
@@ -197,7 +192,6 @@ Ctrl+C or Escape to stop a run. Validation, evidence, scope, and publication gat
 still apply; genuine external blockers and execution errors can still stop work.
 
 This first provider is for **trusted local repositories**, not hostile code.
-See [workflow setup, evidence, and limitations](docs/delivery.md).
 
 ### General settings
 
@@ -278,7 +272,7 @@ but must not repair or change the candidate. The PR summary gets only final outc
 
 The workflow still retains complete history for gates and artifacts. Implementation
 and review can read needed source and evidence through their role-specific tools;
-only the fallback QA has that access. See [agent context](docs/architecture.md#agent-context).
+only the fallback QA has that access.
 
 ### Background observer
 
@@ -329,12 +323,15 @@ Those solve agent context management rather than live user-facing progress.
 Stdout is one validated delivery result, defined in
 [`src/contracts/delivery.ts`](src/contracts/delivery.ts). It includes the status,
 tested revision, round count, artifact directory, summary, and optional draft PR URL.
+Delivery schema 1.1 includes `attempts`; `rounds` counts captured candidates, not
+blocked implementation attempts. A first-attempt blocker has `attempts: 1` and
+`rounds: 0`; consumers of delivery schema 1.0 must update.
 
 The intermediate issue brief is defined in
 [`src/contracts/issue.ts`](src/contracts/issue.ts). It describes the problem,
 outcome, users, scope, prioritized requirements,
 Given/When/Then acceptance criteria, constraints, assumptions, decisions, risks,
-open questions, and readiness. See [the output contract](docs/issue-brief.md).
+open questions, and readiness.
 
 The agent asks for confirmation before completion. Zod rejects `ready` briefs
 without confirmation or with open questions, empty requirements/acceptance
@@ -346,6 +343,22 @@ approved run artifacts record the workflow inputs and state. There are no separa
 issue files. Keep `.darkfactory/` private because artifacts may contain sensitive
 information.
 
+Each run keeps diagnostics under `.darkfactory/runs/<run-id>/`:
+
+- `execution.json`: final workflow outcome and last recorded step.
+- `execution.jsonl`: ordered step events, timings, candidate identity, skip reasons,
+  and repair/blocking decisions.
+- `failure.json`: bounded private stacks, causes, error codes, and partial evidence.
+- `cleanup.jsonl`: cleanup failures without replacing the primary error or cancellation.
+- `state.json`: latest state, captured-candidate history, and separate implementation
+  attempts, including blocked results.
+
+Lifecycle metadata may exist before confirmation, but repository preparation and
+`input.json` still require a confirmed brief. Diagnostic files are not a resume API.
+Stdout is emitted only after factory cleanup succeeds. If publication started,
+check `publication.json` and GitHub before retrying: a later failure does not prove
+that no PR was created.
+
 ## Mastra workflows
 
 `src/workflows/default.ts` defines the single registered `default` workflow in
@@ -356,8 +369,7 @@ Delivery uses a nested Mastra repair loop, not a second top-level run.
 The loop has no execution-time or repair-round budget. Implementation and review use
 separate per-run workspaces and sandboxes. Browser/mobile
 QA gets only application-testing tools; conditional sandbox QA gets its own
-round-owned workspace and sandbox. Trusted runners capture revision-bound evidence. See
-[architecture](docs/architecture.md) and [delivery](docs/delivery.md).
+round-owned workspace and sandbox. Trusted runners capture revision-bound evidence.
 
 ## Structure
 
@@ -372,14 +384,16 @@ src/
   config/               Factory configuration validation/loading
   integrations/         External web search, Figma, Git, GitHub, and proxy adapters
   factory/              Mastra registration, run lifecycle, and background observation
+  diagnostics/          Bounded private error details and failure-preserving cleanup
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests
-docs/                   Architecture and output contract
 ```
 
 Start with [`src/workflows/default.ts`](src/workflows/default.ts) for the flow and
 [`src/delivery/runtime.ts`](src/delivery/runtime.ts) for delivery composition.
-The [architecture guide](docs/architecture.md) maps resource ownership and gates.
+Step skip decisions live in `src/delivery/steps.ts`; gate decisions live in
+`src/delivery/policy.ts`. Publication policy and journaling live in
+`src/delivery/publication.ts`, separate from GitHub calls in `src/integrations/github/publish.ts`.
 
 ## Development
 

@@ -91,6 +91,19 @@ export function scenarioReply(request, resultPath, mode) {
           nodeIds: [payload.sources[0].nodeId],
         },
       },
+      ...(mode === 'delivery-figma-images'
+        ? [
+            {
+              name: 'figma',
+              args: {
+                source: payload.sources[0].url,
+                operation: 'render',
+                nodeIds: [payload.sources[0].nodeId],
+                format: 'png',
+              },
+            },
+          ]
+        : []),
       {
         name: 'mastra_workspace_write_file',
         args: {

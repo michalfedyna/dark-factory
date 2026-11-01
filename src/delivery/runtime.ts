@@ -9,7 +9,7 @@ import { currentRound } from './state.js';
 
 export function createDeliveryRuntime(options: DeliveryOptions) {
   const environment = createDeliveryEnvironment(options);
-  const agents = createDeliveryAgents(options);
+  const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
   const operations: DeliveryOperations = {
     prepare: environment.prepare,
     figma: (state, signal) =>
@@ -69,9 +69,11 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
       agents.summarize(environment.requireRun(), state, signal),
     finish: (state, signal) =>
       finishDelivery(environment.requireRun(), options, state, signal),
-    record: (state) =>
-      environment.requireRun().artifacts.record(state, options.observe),
+    record: (state) => environment.artifacts.record(state, options.observe),
     recordFailure: environment.recordFailure,
+    recordStep: environment.artifacts.step,
+    recordCleanup: environment.artifacts.cleanup,
+    endDiagnostics: environment.artifacts.end,
   };
   return { operations, close: environment.close };
 }

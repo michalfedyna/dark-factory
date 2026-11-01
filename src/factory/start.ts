@@ -11,6 +11,9 @@ import { createDefaultWorkflow } from '../workflows/default.js';
 import { createDeliveryRuntime } from '../delivery/runtime.js';
 import { runDefault } from './run.js';
 import { createProgressObserver } from './observer.js';
+import { cleanupAll, withCleanup } from '../diagnostics/cleanup.js';
+import type { DeliveryOperations } from '../delivery/operations.js';
+import { RunFailure } from '../contracts/diagnostics.js';
 
 export async function startFactory(
   config: FactoryConfig,
@@ -18,15 +21,30 @@ export async function startFactory(
   apiKey: string,
   signal: AbortSignal,
   repositoryDirectory = process.cwd(),
-  options: { debug?: Debug } = {},
+  options: { debug?: Debug; onCleanupError?: (error: unknown) => void } = {},
 ) {
+  const reportStartupCleanup = (error: unknown) => {
+    options.debug?.({
+      kind: 'detail',
+      agent: 'factory',
+      label: 'Startup cleanup failed',
+      value: error,
+    });
+    options.onCleanupError?.(error);
+  };
   const controller = new AbortController();
   const factorySignal = AbortSignal.any([signal, controller.signal]);
   const repository = await inspectRepository(
     repositoryDirectory,
     factorySignal,
   );
-  const router = await startRouter(config, apiKey, directory, factorySignal);
+  const router = await startRouter(
+    config,
+    apiKey,
+    directory,
+    factorySignal,
+    reportStartupCleanup,
+  );
   try {
     const figmaToken = process.env[config.figma.tokenEnv];
     const explore = createExploration(config.model, apiKey, {
@@ -46,8 +64,9 @@ export async function startFactory(
       },
     });
     let closing: Promise<void> | undefined;
+    const cleanupReports = new Set<DeliveryOperations['recordCleanup']>();
     void router.exited.then((message) => {
-      if (!closing) controller.abort(new Error(message));
+      if (!closing) controller.abort(new RunFailure(message));
     });
     return {
       signal: factorySignal,
@@ -92,8 +111,8 @@ export async function startFactory(
                   })
                 : undefined;
             },
-            runtime: (runId, signal) =>
-              createDeliveryRuntime({
+            runtime: (runId, signal) => {
+              const runtime = createDeliveryRuntime({
                 repository,
                 model: config.model,
                 sandbox: config.sandbox,
@@ -105,7 +124,10 @@ export async function startFactory(
                 progress: report,
                 observe,
                 ...(options.debug ? { debug: options.debug } : {}),
-              }),
+              });
+              cleanupReports.add(runtime.operations.recordCleanup);
+              return runtime;
+            },
           });
         } finally {
           // Abort without waiting for a slow observer; final output is authoritative.
@@ -115,18 +137,34 @@ export async function startFactory(
       close: (): Promise<void> => {
         if (!closing) {
           controller.abort(new Error('The factory stopped.'));
-          closing = Promise.allSettled([router.stop(), mastra.shutdown()]).then(
-            (results) => {
-              for (const result of results)
-                if (result.status === 'rejected') throw result.reason;
-            },
-          );
+          closing = cleanupAll([
+            () => router.stop(),
+            () => mastra.shutdown(),
+          ]).catch(async (error: unknown) => {
+            await Promise.allSettled(
+              [...cleanupReports].map((report) =>
+                report('factory router/Mastra', error),
+              ),
+            );
+            throw new Error(
+              'Factory cleanup failed. See cleanup.jsonl in the run artifacts.',
+              { cause: error },
+            );
+          });
         }
         return closing;
       },
     };
   } catch (error) {
-    await router.stop();
-    throw error;
+    return withCleanup(
+      () =>
+        Promise.reject(
+          error instanceof Error
+            ? error
+            : new Error('Factory initialization failed.', { cause: error }),
+        ),
+      () => router.stop(),
+      reportStartupCleanup,
+    );
   }
 }

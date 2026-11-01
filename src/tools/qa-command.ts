@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { LocalSandbox } from '@mastra/core/workspace';
 import { z } from 'zod';
 import type { VerificationProject } from '../contracts/project.js';
+import { errorDetails } from '../diagnostics/errors.js';
 import {
   validateScreenshot,
   type EvidenceRecorder,
@@ -115,6 +116,7 @@ export async function executeQaCommand(
 ) {
   options.signal.throwIfAborted();
   let result;
+  let executionError: unknown;
   try {
     result = await options.automationSandbox.executeCommand!(
       input.command,
@@ -124,8 +126,9 @@ export async function executeQaCommand(
         timeout: 0,
       },
     );
-  } catch {
+  } catch (error) {
     options.signal.throwIfAborted();
+    executionError = errorDetails(error);
     result = {
       exitCode: -1,
       stdout: '',
@@ -154,7 +157,12 @@ export async function executeQaCommand(
       operation: input.operation,
       exitCode: result.exitCode,
     },
-    { args: input.args, ...result },
+    {
+      command: input.command,
+      args: input.args,
+      ...result,
+      ...(executionError ? { error: executionError } : {}),
+    },
     result.exitCode === 0 ? input.screenshot : undefined,
   );
   return {

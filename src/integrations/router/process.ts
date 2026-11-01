@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { FactoryConfig } from '../../config/schema.js';
 import { startManagedRouter } from './managed-process.js';
+import { withCleanup } from '../../diagnostics/cleanup.js';
 
 const modelsSchema = z.object({ data: z.array(z.object({ id: z.string() })) });
 
@@ -34,6 +35,7 @@ export async function startRouter(
   apiKey: string,
   directory: string,
   signal = new AbortController().signal,
+  reportCleanup: (error: unknown) => void = () => {},
 ) {
   signal.throwIfAborted();
   const modelsUrl = new URL(
@@ -105,7 +107,15 @@ export async function startRouter(
       await delay(100, undefined, { signal });
     }
   } catch (error) {
-    await stop();
-    throw error;
+    return withCleanup(
+      () =>
+        Promise.reject(
+          error instanceof Error
+            ? error
+            : new Error('Router startup failed.', { cause: error }),
+        ),
+      stop,
+      reportCleanup,
+    );
   }
 }

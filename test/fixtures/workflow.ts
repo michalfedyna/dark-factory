@@ -104,19 +104,27 @@ export function createWorkflowSetup(
       .mockResolvedValue(summary),
     finish: vi.fn<DeliveryOperations['finish']>().mockImplementation((state) =>
       Promise.resolve({
-        schemaVersion: '1.0',
+        schemaVersion: '1.1',
         runId: 'run',
         status: state.status === 'blocked' ? 'blocked' : 'ready',
         reason: state.reason,
         baseRevision: state.baseRevision,
         revision: state.history.at(-1)?.revision ?? null,
         rounds: state.round,
+        attempts: state.implementationAttempts.length,
         runDirectory: 'runs/run',
         summary: state.summary,
         pullRequestUrl: null,
       }),
     ),
     record: vi.fn<DeliveryOperations['record']>().mockResolvedValue(),
+    recordStep: vi.fn<DeliveryOperations['recordStep']>().mockResolvedValue(),
+    recordCleanup: vi
+      .fn<DeliveryOperations['recordCleanup']>()
+      .mockResolvedValue(),
+    endDiagnostics: vi
+      .fn<DeliveryOperations['endDiagnostics']>()
+      .mockResolvedValue(),
     recordFailure: vi
       .fn<DeliveryOperations['recordFailure']>()
       .mockResolvedValue('runs/run/failure.json'),

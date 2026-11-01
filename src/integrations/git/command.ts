@@ -53,9 +53,12 @@ export async function hostCommand(
     return result.stdout;
   } catch (error) {
     signal.throwIfAborted();
-    throw new Error(
-      `${command} operation failed. Check repository access, authentication, and command installation.`,
-      { cause: error },
+    throw Object.assign(
+      new Error(
+        `${command} operation failed. Check repository access, authentication, and command installation.`,
+        { cause: error },
+      ),
+      { command, args },
     );
   }
 }

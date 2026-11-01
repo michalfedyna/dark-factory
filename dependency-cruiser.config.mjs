@@ -2,6 +2,12 @@
 export default {
   forbidden: [
     {
+      name: 'keep-delivery-policy-out-of-integrations',
+      severity: 'error',
+      from: { path: '^src/integrations/' },
+      to: { path: '^src/delivery/' },
+    },
+    {
       name: 'no-circular-dependencies',
       severity: 'error',
       from: {},

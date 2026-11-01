@@ -4,6 +4,7 @@ import {
   chmod,
   copyFile,
   mkdir,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -15,6 +16,14 @@ import { expect } from 'vitest';
 import type { FactoryConfig } from '../../src/config/schema.js';
 import { hostCommand } from '../../src/integrations/git/command.js';
 import { brief } from './brief.js';
+
+export async function findRunDirectory(source: string): Promise<string> {
+  const root = join(source, '.darkfactory', 'runs');
+  const entries = await readdir(root);
+  if (entries.length !== 1 || !entries[0])
+    throw new Error('Expected one test run directory.');
+  return join(root, entries[0]);
+}
 
 export async function availablePort(): Promise<number> {
   const server = createServer();

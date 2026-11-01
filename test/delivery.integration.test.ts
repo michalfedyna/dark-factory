@@ -122,6 +122,41 @@ test.each([
       const result = deliveryResultSchema.parse(JSON.parse(run.stdout()));
       expect(result.status).toBe('published');
       expect(result.rounds).toBe(rounds);
+      expect(result.attempts).toBe(rounds);
+      const lifecycle: unknown = JSON.parse(
+        await readFile(join(result.runDirectory, 'execution.json'), 'utf8'),
+      );
+      expect(lifecycle).toMatchObject({
+        outcome: 'completed',
+        lastStep: {
+          step: 'publish-delivery',
+          status: 'completed',
+          round: rounds,
+          attempt: rounds,
+          deliveryStatus: 'approved',
+        },
+      });
+      const execution = (
+        await readFile(join(result.runDirectory, 'execution.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as unknown);
+      expect(execution).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            step: 'figma-ui',
+            status: 'skipped',
+            reason: 'No linked Figma designs.',
+          }),
+          expect.objectContaining({
+            step: 'implement',
+            status: 'completed',
+            deliveryStatus: 'verifying',
+          }),
+          expect.objectContaining({ step: 'validate-qa', status: 'completed' }),
+        ]),
+      );
       expect(result.pullRequestUrl).toBe(
         'https://github.com/example/project/pull/12',
       );

@@ -194,6 +194,49 @@ test('operations reject use before preparation and close is safe before setup', 
   await runtime.close();
   await runtime.close();
 });
+test('preparation failures can be journaled before live run resources exist', async () => {
+  const { options } = await setup();
+  vi.mocked(readBase).mockResolvedValueOnce('changed-base');
+  const runtime = createDeliveryRuntime(options);
+  const failure = runtime.operations.prepare(brief, options.signal);
+  await expect(failure).rejects.toThrow('base branch changed');
+  const error: unknown = await failure.catch((error: unknown) => error);
+  const path = await runtime.operations.recordFailure(
+    'prepare-delivery',
+    null,
+    error,
+  );
+  const journal: unknown = JSON.parse(await readFile(path, 'utf8'));
+  expect(journal).toMatchObject({
+    step: 'prepare-delivery',
+    round: 0,
+    revision: null,
+    error: {
+      message: 'The base branch changed since startup. Start a new run.',
+    },
+  });
+  await runtime.close();
+});
+
+test('review failure survives workspace-stop failure and both causes remain inspectable', async () => {
+  const { environment, options } = await setup();
+  await environment.prepare(brief, options.signal);
+  const run = environment.requireRun();
+  const primary = new Error('Review provider failed');
+  const cleanup = new Error('Review stop failed');
+  vi.mocked(createReview).mockReturnValueOnce(
+    vi.fn<ReturnType<typeof createReview>>().mockRejectedValue(primary),
+  );
+  vi.spyOn(run.reviewWorkspace, 'stop').mockRejectedValueOnce(cleanup);
+  const state = candidateState();
+  state.history[0]!.qa = qaSchema.parse(qaPass);
+  const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
+  await expect(agents.review(run, state, options.signal)).rejects.toBe(primary);
+  const content = await readFile(join(run.directory, 'cleanup.jsonl'), 'utf8');
+  expect(content).toContain('review workspace');
+  expect(content).toContain('Review stop failed');
+  expect(content).toContain('delivery-environment.test.ts');
+});
 
 test('all project roles receive explicit toolchain paths without inheriting host credentials or HOME', async () => {
   vi.stubEnv('JAVA_HOME', '/test/jdk');
@@ -457,7 +500,7 @@ test.each(['pass', 'error', 'cancel', 'patch-error'] as const)(
         new Error('Diff failed'),
       );
     const stop = vi.spyOn(run.reviewWorkspace, 'stop');
-    const agents = createDeliveryAgents(options);
+    const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
     const pending = agents.review(run, state, options.signal);
     if (outcome === 'pass') await expect(pending).resolves.toEqual(result);
     else
@@ -821,7 +864,7 @@ test.each(['pass', 'error', 'cancel'] as const)(
       });
     vi.mocked(createSandboxQa).mockReturnValueOnce(generate);
     const stop = vi.spyOn(resources.sandboxQaWorkspace, 'stop');
-    const agents = createDeliveryAgents(options);
+    const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
     const pending = agents.sandboxQa(resources, state, options.signal);
     if (outcome === 'pass') await expect(pending).resolves.toEqual(result);
     else
@@ -893,7 +936,7 @@ test.each(['pass', 'unread', 'error', 'cancel', 'missing-token'] as const)(
         return figmaResult;
       });
     vi.mocked(createFigma).mockReturnValueOnce(generate);
-    const agents = createDeliveryAgents(options);
+    const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
     const pending = agents.figma(run, state, workspace, options.signal);
     if (outcome === 'error' || outcome === 'cancel')
       await expect(pending).rejects.toThrow(

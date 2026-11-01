@@ -10,7 +10,7 @@ import {
 import {
   PublicationError,
   publishPullRequest,
-} from '../src/integrations/github/publish.js';
+} from '../src/delivery/publication.js';
 import { renderPullRequest } from '../src/delivery/pull-request.js';
 import type { DeliveryState } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
@@ -96,6 +96,9 @@ async function setup() {
     round: 1,
     status: 'approved',
     reason: '',
+    implementationAttempts: [
+      { attempt: 1, result: implementation, candidateRound: 1 },
+    ],
     summary: {
       title: 'feat: CSV export',
       changes: ['Add CSV export.'],
@@ -242,7 +245,7 @@ test('named PR sections preserve the existing Markdown format', async () => {
 
 Code candidate: \`${round.revision}\`
 Base: \`${state.baseRevision}\`
-Implementation rounds: 1
+Implementation attempts: 1; captured rounds: 1
 QA: pass; review: pass.
 
 - test: pass (\`check\`)

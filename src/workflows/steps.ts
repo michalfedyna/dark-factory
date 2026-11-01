@@ -15,8 +15,8 @@ import {
 import { issueBriefSchema } from '../contracts/issue.js';
 import type { DeliveryOperations } from '../delivery/operations.js';
 import type { DeliveryStep } from '../delivery/steps.js';
-import { DeliveryStepFailure } from '../delivery/failure.js';
 import { findFigmaSources } from '../integrations/figma/sources.js';
+import { executeRecordedStep } from './execution.js';
 
 export const inputSchema = z.strictObject({ issue: issueInputSchema });
 export const requestContextSchema = z.object({
@@ -32,7 +32,7 @@ export const requestContextSchema = z.object({
   onDeliveryStart: z
     .custom<() => void>((value) => typeof value === 'function')
     .optional(),
-  deliveryFailure: z.instanceof(DeliveryStepFailure).optional(),
+  deliveryFailure: z.instanceof(Error).optional(),
 });
 export type WorkflowRequestContext = z.infer<typeof requestContextSchema>;
 
@@ -67,18 +67,27 @@ export function createExploreStep(explore: Explore) {
           asking = false;
         }
       };
-      try {
-        const brief = await explore(
-          inputData.issue,
-          ask,
-          signal,
-          requestContext.get('observe'),
-        );
-        signal.throwIfAborted();
-        return issueBriefSchema.parse(brief);
-      } finally {
-        exploration.abort(new Error('Exploration ended.'));
-      }
+      return executeRecordedStep({
+        step: 'explore-issue',
+        state: null,
+        operations: requestContext.get('operations'),
+        signal: AbortSignal.any([abortSignal, requestContext.get('signal')]),
+        onFailure: (error) => requestContext.set('deliveryFailure', error),
+        execute: async () => {
+          try {
+            const brief = await explore(
+              inputData.issue,
+              ask,
+              signal,
+              requestContext.get('observe'),
+            );
+            signal.throwIfAborted();
+            return issueBriefSchema.parse(brief);
+          } finally {
+            exploration.abort(new Error('Exploration ended.'));
+          }
+        },
+      });
     },
   });
 }
@@ -92,30 +101,43 @@ export const prepare = createStep({
     const { inputData, requestContext, abortSignal } = context;
     const signal = AbortSignal.any([abortSignal, requestContext.get('signal')]);
     signal.throwIfAborted();
-    if (inputData.readiness !== 'ready' || !inputData.confirmedByUser)
-      throw new Error('Delivery requires a confirmed, ready brief.');
-    requestContext.get('onDeliveryStart')?.();
-    requestContext.get('progress')('Preparing delivery');
-    const baseRevision = await requestContext
-      .get('operations')
-      .prepare(inputData, signal);
-    signal.throwIfAborted();
-    const { issue } = inputSchema.parse(context.getInitData());
-    const sources = findFigmaSources(issue, JSON.stringify(inputData));
-    return {
-      brief: inputData,
-      baseRevision,
-      round: 0,
-      status: 'repair' as const,
-      reason: '',
-      history: [],
-      ...(sources.length ? { figma: { sources, result: null } } : {}),
-      summary: null,
-    };
+    return executeRecordedStep({
+      step: 'prepare-delivery',
+      state: null,
+      operations: requestContext.get('operations'),
+      signal,
+      resultState: (state) => state,
+      onFailure: (error) => requestContext.set('deliveryFailure', error),
+      execute: async () => {
+        if (inputData.readiness !== 'ready' || !inputData.confirmedByUser)
+          throw new Error('Delivery requires a confirmed, ready brief.');
+        requestContext.get('onDeliveryStart')?.();
+        requestContext.get('progress')('Preparing delivery');
+        const baseRevision = await requestContext
+          .get('operations')
+          .prepare(inputData, signal);
+        signal.throwIfAborted();
+        const { issue } = inputSchema.parse(context.getInitData());
+        const sources = findFigmaSources(issue, JSON.stringify(inputData));
+        const state = {
+          brief: inputData,
+          baseRevision,
+          round: 0,
+          status: 'pending' as const,
+          reason: '',
+          history: [],
+          implementationAttempts: [],
+          ...(sources.length ? { figma: { sources, result: null } } : {}),
+          summary: null,
+        };
+        await requestContext.get('operations').record(state);
+        return state;
+      },
+    });
   },
 });
 
-export function deliveryStep(id: string, execute: DeliveryStep) {
+export function deliveryStep(id: string, definition: DeliveryStep) {
   return createStep({
     id,
     inputSchema: deliveryStateSchema,
@@ -128,23 +150,24 @@ export function deliveryStep(id: string, execute: DeliveryStep) {
       ]);
       signal.throwIfAborted();
       const operations = requestContext.get('operations');
-      try {
-        const state = await execute(inputData, operations, signal);
-        signal.throwIfAborted();
-        await operations.record(state);
-        return state;
-      } catch (error) {
-        signal.throwIfAborted();
-        let path: string | undefined;
-        try {
-          path = await operations.recordFailure(id, inputData, error);
-        } catch {
-          // Keep the original failure if even the private journal cannot be saved.
-        }
-        const failure = new DeliveryStepFailure(id, path, error);
-        requestContext.set('deliveryFailure', failure);
-        throw failure;
-      }
+      return executeRecordedStep({
+        step: id,
+        state: inputData,
+        operations,
+        signal,
+        skip: () => {
+          const reason = definition.skip(inputData);
+          return reason ? { reason, result: inputData } : null;
+        },
+        resultState: (state) => state,
+        onFailure: (error) => requestContext.set('deliveryFailure', error),
+        execute: async () => {
+          const state = await definition.execute(inputData, operations, signal);
+          signal.throwIfAborted();
+          await operations.record(state);
+          return state;
+        },
+      });
     },
   });
 }
@@ -157,8 +180,16 @@ export const finish = createStep({
   execute: async ({ inputData, requestContext, abortSignal }) => {
     const signal = AbortSignal.any([abortSignal, requestContext.get('signal')]);
     signal.throwIfAborted();
-    return deliveryResultSchema.parse(
-      await requestContext.get('operations').finish(inputData, signal),
-    );
+    return executeRecordedStep({
+      step: 'publish-delivery',
+      state: inputData,
+      operations: requestContext.get('operations'),
+      signal,
+      onFailure: (error) => requestContext.set('deliveryFailure', error),
+      execute: async () =>
+        deliveryResultSchema.parse(
+          await requestContext.get('operations').finish(inputData, signal),
+        ),
+    });
   },
 });

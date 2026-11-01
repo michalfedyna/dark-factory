@@ -80,29 +80,68 @@ const roundSchema = z.strictObject({
   review: reviewSchema.nullable(),
   findings: z.array(findingSchema),
 });
-export const deliveryStateSchema = z.strictObject({
-  brief: issueBriefSchema,
-  baseRevision: z.string(),
-  round: z.number().int().nonnegative(),
-  status: z.enum(['repair', 'approved', 'blocked']),
-  reason: z.string(),
-  history: z.array(roundSchema),
-  figma: z
-    .strictObject({
-      sources: z.array(figmaSourceSchema).min(1),
-      result: figmaResultSchema.nullable(),
-    })
-    .optional(),
-  summary: summarySchema.nullable(),
-});
+export const deliveryStateSchema = z
+  .strictObject({
+    brief: issueBriefSchema,
+    baseRevision: z.string(),
+    round: z.number().int().nonnegative(),
+    status: z.enum(['pending', 'verifying', 'repair', 'approved', 'blocked']),
+    reason: z.string(),
+    history: z.array(roundSchema),
+    implementationAttempts: z.array(
+      z.strictObject({
+        attempt: z.number().int().positive(),
+        result: implementationSchema,
+        candidateRound: z.number().int().positive().nullable(),
+      }),
+    ),
+    figma: z
+      .strictObject({
+        sources: z.array(figmaSourceSchema).min(1),
+        result: figmaResultSchema.nullable(),
+      })
+      .optional(),
+    summary: summarySchema.nullable(),
+  })
+  .superRefine((state, context) => {
+    if (
+      state.round !== state.history.length ||
+      state.history.some((round, index) => round.round !== index + 1)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['history'],
+        message: 'Round count and ordered candidate history must match.',
+      });
+    const captured = state.implementationAttempts.flatMap((attempt) =>
+      attempt.candidateRound === null ? [] : [attempt.candidateRound],
+    );
+    if (
+      state.implementationAttempts.some(
+        (attempt, index) =>
+          attempt.attempt !== index + 1 ||
+          (attempt.candidateRound === null) !==
+            attempt.result.blockers.length > 0,
+      ) ||
+      captured.length !== state.round ||
+      captured.some((round, index) => round !== index + 1)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['implementationAttempts'],
+        message:
+          'Ordered attempts must retain blocked results and reference each captured round exactly once.',
+      });
+  });
 export const deliveryResultSchema = z.strictObject({
-  schemaVersion: z.literal('1.0'),
+  schemaVersion: z.literal('1.1'),
   runId: text,
   status: z.enum(['blocked', 'ready', 'published']),
   reason: z.string(),
   baseRevision: text,
   revision: z.string().nullable(),
   rounds: z.number().int().nonnegative(),
+  attempts: z.number().int().nonnegative(),
   runDirectory: text,
   summary: summarySchema.nullable(),
   pullRequestUrl: z.url().nullable(),

@@ -140,7 +140,7 @@ test('a late Figma result cannot advance a cancelled workflow', async () => {
     return Promise.resolve(figmaResult);
   });
   await expect(
-    scaffoldUi(state, operations, controller.signal),
+    scaffoldUi.execute(state, operations, controller.signal),
   ).rejects.toThrow('Cancelled');
   expect(state.figma.result).toBeNull();
 });

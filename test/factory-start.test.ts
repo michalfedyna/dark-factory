@@ -70,6 +70,26 @@ test('factory initialization failure waits for the acquired router to stop', asy
   stopped.resolve();
   await rejected;
 });
+test('startup cleanup reports its failure without hiding initialization failure', async () => {
+  const primary = new Error('Cannot initialize Mastra');
+  const cleanup = new Error('Cannot stop router');
+  constructMastra.mockImplementationOnce(function () {
+    throw primary;
+  });
+  stopRouter.mockRejectedValueOnce(cleanup);
+  const report = vi.fn();
+  await expect(
+    startFactory(
+      config,
+      process.cwd(),
+      'test-key',
+      new AbortController().signal,
+      process.cwd(),
+      { onCleanupError: report },
+    ),
+  ).rejects.toBe(primary);
+  expect(report).toHaveBeenCalledWith(cleanup);
+});
 
 test('factory close waits for router cleanup even if Mastra shutdown fails', async () => {
   const factory = await startFactory(
@@ -88,7 +108,10 @@ test('factory close waits for router cleanup even if Mastra shutdown fails', asy
     closing.finally(() => {
       finished = true;
     }),
-  ).rejects.toThrow('Shutdown failed.');
+  ).rejects.toMatchObject({
+    message: expect.stringContaining('Factory cleanup failed.') as unknown,
+    cause: { message: 'Shutdown failed.' },
+  });
   await vi.waitFor(() => {
     expect(shutdown).toHaveBeenCalledOnce();
   });

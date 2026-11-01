@@ -2,7 +2,7 @@ import {
   deliveryResultSchema,
   type DeliveryState,
 } from '../contracts/delivery.js';
-import { publishPullRequest } from '../integrations/github/publish.js';
+import { publishPullRequest } from './publication.js';
 import { renderPullRequest } from './pull-request.js';
 import type { DeliveryOptions, RunResources } from './context.js';
 
@@ -15,6 +15,13 @@ export async function finishDelivery(
   const { project, repository, directory, runId, artifacts } = run;
   let pullRequestUrl: string | null = null;
   const round = state.history.at(-1);
+  if (
+    state.status !== 'blocked' &&
+    (state.status !== 'approved' || !state.summary || !round)
+  )
+    throw new Error(
+      'Finishing requires a blocked result or an approved candidate with a summary.',
+    );
   if (state.status === 'approved' && state.summary && round) {
     const screenshots = round.evidence.filter(
       (record) => record.kind === 'screenshot' && record.exitCode === 0,
@@ -39,7 +46,7 @@ export async function finishDelivery(
     }
   }
   const result = deliveryResultSchema.parse({
-    schemaVersion: '1.0',
+    schemaVersion: '1.1',
     runId,
     status:
       state.status === 'blocked'
@@ -55,6 +62,7 @@ export async function finishDelivery(
     baseRevision: state.baseRevision,
     revision: round?.revision ?? null,
     rounds: state.round,
+    attempts: state.implementationAttempts.length,
     runDirectory: directory,
     summary: state.summary,
     pullRequestUrl,
