@@ -1,10 +1,10 @@
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
-import { stripVTControlCharacters } from 'node:util';
 import * as prompts from '@clack/prompts';
 import { loadConfig } from '../config/load.js';
 import { issueInputSchema } from '../contracts/interaction.js';
 import { startFactory } from '../factory/start.js';
+import { writeObserver } from './observer.js';
 import { CancelledError, createTerminal } from './terminal.js';
 
 export async function startCommand(options: {
@@ -75,16 +75,9 @@ export async function startCommand(options: {
         if (!progress) output.write(`${message}\n`);
       },
       (message) => {
-        const text = stripVTControlCharacters(message)
-          .replace(/\s+/g, ' ')
-          .trim();
         progress?.clear();
-        if (progress) {
-          prompts.log.info(`Observer: ${text}`, { output, withGuide: false });
-          progress.start(stage);
-        } else {
-          output.write(`Observer: ${text}\n`);
-        }
+        writeObserver(message, output);
+        progress?.start(stage);
       },
     );
     progress?.clear();

@@ -77,6 +77,9 @@ without mixing them into stdout JSON or a pending prompt. Observations are not
 fed back into agents, gates, or approvals. This is not durable observational
 memory and does not add storage or a custom workflow engine.
 
+`cli/observer.ts` owns summary sanitization and rendering: terminal-width accent
+blocks in a TTY (respecting `NO_COLOR`), plain `Observer: ...` lines otherwise.
+
 ## Cancellation and failures
 
 All model/tool work receives an AbortSignal combining the native workflow signal
