@@ -4,7 +4,9 @@
 
 Turn a user request into reviewed, tested software and a pull request through a
 controlled, repeatable workflow. This is the target design for DarkFactory, not
-a description of capabilities already implemented.
+a description of all capabilities already implemented. The initial delivery slice
+(implementation, QA, review, bounded repairs, summary, and approved draft PR) is
+described in [delivery.md](delivery.md), including its local-provider limitations.
 
 LLMs generate proposals; software decides what is allowed, what happens next,
 and whether the result is acceptable. The goal is not identical generated code.

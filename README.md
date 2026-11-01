@@ -1,7 +1,7 @@
 # DarkFactory
 
-A CLI software factory. Describe an issue, answer the exploration agent's
-questions, and get a validated JSON brief. It does **not** change project code yet.
+A CLI software factory. Explore an issue into a validated brief, or opt into
+implementation, web/native QA, independent review, and a draft GitHub PR.
 
 The CLI is the only interface. There is no web app or local UI server.
 
@@ -11,6 +11,9 @@ The CLI is the only interface. There is no web app or local UI server.
 - [CLIProxyAPI](https://help.router-for.me/introduction/quick-start.html) v8
 - Upstream credentials with access to `gpt-6.1-sol` (Sol 6.1), or another configured
   model that supports tool calls
+
+Opt-in delivery also needs Git, authenticated GitHub CLI, and the browser/device
+tools applicable to the target project. See [delivery setup](docs/delivery.md).
 
 ## Setup
 
@@ -87,6 +90,27 @@ not assume a fixed answer script is suitable for every real issue.
 
 ## Configuration
 
+### End-to-end delivery
+
+```sh
+cp config/delivery.example.json factory.delivery.json
+# Configure the target repository, allowed paths, checks, and QA targets.
+npm run dev -- start --config factory.delivery.json --deliver --issue "Add CSV export"
+```
+
+`--deliver` adds implementation → checks → QA → review → summary → draft PR.
+QA uses **agent-browser** for web and **agent-device** for native iOS/Android.
+QA/review findings can return to implementation within a shared repair budget;
+new candidates always get fresh verification. Implementation and GitHub publication
+require separate explicit terminal approvals. Choose **Keep local** to stop before
+push/PR creation. Delivery stdout is one final result JSON; briefs and run evidence
+are saved privately on disk. Existing exploration-only behavior is unchanged.
+
+This first provider is for **trusted local repositories**, not hostile code.
+See [delivery setup, configuration, evidence, and limitations](docs/delivery.md).
+
+### General settings
+
 `factory.config.json` is validated by
 [`src/config/schema.ts`](src/config/schema.ts). Unknown fields are rejected.
 **The old `ui` section is no longer supported; remove it from custom configs.**
@@ -141,10 +165,10 @@ Task-specific workflow definitions live in `src/workflows/` and are registered i
 `src/factory/start.ts`. Future tasks can use different workflows rather than one
 fixed sequence. Prefer Mastra features over custom infrastructure.
 
-Future implementation and QA agents should use Mastra workspaces and sandboxes
-for repository work, commands, builds, and tests. These agents are not part of the
-current exploration-only CLI. See [architecture](docs/architecture.md) for
-environment isolation, ownership, and cleanup requirements.
+Opt-in delivery is another registered workflow with a nested Mastra repair loop.
+Implementation uses a per-run workspace and sandbox; QA/review get read-only
+source access, and trusted runners capture revision-bound evidence. See
+[architecture](docs/architecture.md) and [delivery](docs/delivery.md).
 
 ## Structure
 

@@ -9,12 +9,17 @@ import { CancelledError, createTerminal } from './terminal.js';
 export async function startCommand(options: {
   config: string;
   issue?: string;
+  deliver?: boolean;
 }): Promise<void> {
   const suppliedIssue =
     options.issue === undefined
       ? undefined
       : issueInputSchema.parse(options.issue);
   const { config, directory } = await loadConfig(options.config);
+  if (options.deliver && !config.delivery)
+    throw new Error(
+      'Configure the delivery section before using --deliver. See docs/delivery.md.',
+    );
   try {
     loadEnvFile(resolve(directory, '.env'));
   } catch (error) {
@@ -52,7 +57,7 @@ export async function startCommand(options: {
       directory,
       apiKey,
       (json) => {
-        process.stdout.write(`${json}\n`);
+        if (!options.deliver) process.stdout.write(`${json}\n`);
       },
       controller.signal,
     );
@@ -77,6 +82,31 @@ export async function startCommand(options: {
       output,
       withGuide: false,
     });
+    if (options.deliver) {
+      let stage = 'Preparing delivery';
+      const delivery = await factory.deliver(
+        result.brief,
+        async (question, signal) => {
+          progress?.clear();
+          const answer = await terminal.ask(question, signal);
+          progress?.start(stage);
+          return answer;
+        },
+        (message) => {
+          stage = message;
+          progress?.start(message);
+          if (!progress) process.stderr.write(`${message}\n`);
+        },
+      );
+      progress?.clear();
+      process.stdout.write(`${JSON.stringify(delivery, null, 2)}\n`);
+      prompts.log.success(
+        delivery.pullRequestUrl ??
+          `Delivery ${delivery.status}: ${delivery.runDirectory}`,
+        { output, withGuide: false },
+      );
+      if (delivery.status === 'blocked') process.exitCode = 1;
+    }
   } catch (error) {
     progress?.clear();
     if (

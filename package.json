@@ -11,6 +11,7 @@
     "scripts/install-hooks.mjs",
     "factory.config.json",
     "config/router.example.yaml",
+    "config/delivery.example.json",
     ".env.example"
   ],
   "engines": {

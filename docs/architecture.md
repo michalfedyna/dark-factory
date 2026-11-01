@@ -1,4 +1,4 @@
-# CLI issue exploration
+# CLI software factory
 
 ## Boundaries
 
@@ -43,7 +43,8 @@ CLIProxyAPI remains the model transport; it is not a user interface.
 7. Close terminal input, shut down Mastra, and stop the owned proxy after
    completion or failure.
 
-One invocation explores one issue. Start another invocation for another issue.
+Without `--deliver`, one invocation only explores one issue. Start another
+invocation for another issue.
 There is no custom Sessions class, session polling, browser state, or durable
 conversation resume. Mastra owns step sequencing, run IDs, and execution status.
 
@@ -75,6 +76,8 @@ protocol; Chat Completions is configurable and integration-tested.
 
 - Add agents in `agents/` and inject tools instead of importing CLI behavior.
 - Add tools in `tools/` with validated inputs and small capability interfaces.
+- Define each agent and integration tool in its own file. Share common helpers,
+  not role-switching agent or tool definitions.
 - Prefer Mastra's existing functionality before building custom infrastructure.
 - Add task-specific definitions in `workflows/` and register them with Mastra in
   `factory/start.ts`. Use separate workflows for exploration, implementation, QA,
@@ -87,10 +90,31 @@ protocol; Chat Completions is configurable and integration-tested.
 
 ## Implementation and QA environments
 
-Implementation and QA agents are not implemented yet. Their repository commands,
-dependency installs, builds, tests, and background processes should use Mastra
-`Workspace` and sandbox providers, including the generated filesystem and command
-tools, rather than a custom command execution layer. See the
+Opt-in delivery uses a separate registered workflow. Its native nested
+`.dountil()` cycle runs implementation, deterministic checks, QA, independent
+review, and the controller's gate. Findings return to implementation within one
+shared repair budget. Summary and explicitly approved draft-PR publication happen
+only after passing gates. See [delivery](delivery.md) for configuration and the
+initial provider's limits.
+
+Each agent owns its instructions, Mastra definition, and output contract in
+`agents/exploration.ts`, `agents/implementation.ts`, `agents/qa.ts`,
+`agents/review.ts`, or `agents/summary.ts`. `agents/shared.ts` only shares delivery
+instructions, model transport configuration, and structured-output generation.
+
+QA's `agent_browser` and `agent_device` tools are defined separately in
+`tools/agent-browser.ts` and `tools/agent-device.ts`. Each handles its own CLI
+arguments and target kind, including screenshot operations. `tools/qa.ts` only
+assembles the integrations required by the configured targets; `tools/qa-command.ts`
+shares argument validation, sandbox execution, and evidence recording.
+
+`factory/delivery-runtime.ts` creates run-owned Mastra `Workspace`,
+`LocalFilesystem`, and `LocalSandbox` instances. Implementation gets filesystem
+and sandbox tools; QA/review filesystem providers are read-only. QA's explicit
+tools invoke only configured agent-browser/agent-device binaries through Mastra,
+record evidence, and restrict operations and global flags. Project dependency
+installs, commands, builds, tests, and background processes use Mastra rather than
+a custom command execution layer. See the
 [sandbox documentation](https://mastra.ai/docs/sandbox/overview).
 
 Scope environments to a task or workflow run. For resolver-backed workspaces, use
@@ -104,5 +128,18 @@ native isolation or a remote/container provider for untrusted repository code.
 Restrict network access and credentials before executing commands, and do not
 share mutable environments between unrelated tasks.
 
-Not included yet: repository tools, source edits, planning/build agents, token
-streaming, durable agent suspension, or remote/multi-user interfaces.
+The trusted Git/GitHub adapters run outside project sandboxes and own snapshot
+commits and authorized publication. The source checkout is cloned at a pinned
+local base, and its Git control files live outside the agent filesystem. Native
+isolation is the default for project commands but isn't a complete host boundary;
+browser/device CLIs run on the trusted local host. No factory API-key environment
+is passed to project commands. Local provider limits are explicit in the approval
+and documented; use remote/container isolation before supporting hostile code.
+
+Native workflow sequencing and budgets are not a custom session engine. Run
+artifacts are persisted for inspection, but delivery doesn't yet configure Mastra
+snapshot storage or automatic restart/resume. Publishing is never retried after
+an uncertain external effect. Runs end at a draft PR, not a CI-ready or merged PR.
+
+Not included yet: separate planning agents, token streaming, durable suspension,
+PR feedback monitoring, or remote/multi-user interfaces.

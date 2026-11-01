@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deliveryConfigSchema } from './delivery.js';
 
 export const factoryConfigSchema = z
   .strictObject({
@@ -25,6 +26,7 @@ export const factoryConfigSchema = z
       })
       .prefault({}),
     outputDir: z.string().trim().min(1).default('.darkfactory/issues'),
+    delivery: deliveryConfigSchema.optional(),
     sessionTimeoutMs: z
       .number()
       .int()

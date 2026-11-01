@@ -16,14 +16,24 @@ export function createProgram(version: string): Command {
     )
     .option('-i, --issue <text>', 'Issue to explore (otherwise prompt)')
     .option(
+      '--deliver',
+      'Continue the confirmed brief through implementation, QA, review, and draft PR publication',
+    )
+    .option(
       '-c, --config <path>',
       'Factory configuration file',
       'factory.config.json',
     )
-    .action(async (options: { config: string; issue?: string }) => {
-      const { startCommand } = await import('./start.js');
-      await startCommand(options);
-    });
+    .action(
+      async (options: {
+        config: string;
+        issue?: string;
+        deliver?: boolean;
+      }) => {
+        const { startCommand } = await import('./start.js');
+        await startCommand(options);
+      },
+    );
 
   // Keep the scaffold's strict unknown-argument behavior on the root command.
   program.allowExcessArguments(false);

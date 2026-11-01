@@ -55,12 +55,23 @@ const server = createServer((request, response) => {
       context: 'Choose a format for the filtered issues.',
       options: ['CSV', 'JSON'],
     };
-    const output = resultPath ? readFileSync(resultPath, 'utf8') : '{}';
+    const savedOutput = resultPath ? readFileSync(resultPath, 'utf8') : '{}';
+    const delivery = mode.startsWith('delivery')
+      ? deliveryReply(input, savedOutput, mode)
+      : undefined;
+    const output = delivery?.result
+      ? JSON.stringify(delivery.result)
+      : savedOutput;
+    const toolName = delivery?.tool?.name ?? 'ask';
+    const toolArgs = delivery?.tool?.args ?? question;
+    const toolId = delivery
+      ? `call-${toolName}-${input.messages ? input.messages.length : input.input.length}`
+      : 'call-question';
     response.writeHead(200, { 'Content-Type': 'application/json' });
     if (request.url === '/v1/chat/completions') {
-      const answered = input.messages.some(
-        (message) => message.role === 'tool',
-      );
+      const answered = delivery
+        ? !delivery.tool
+        : input.messages.some((message) => message.role === 'tool');
       response.end(
         JSON.stringify({
           id: 'completion-test',
@@ -77,11 +88,11 @@ const server = createServer((request, response) => {
                     content: null,
                     tool_calls: [
                       {
-                        id: 'call-question',
+                        id: toolId,
                         type: 'function',
                         function: {
-                          name: 'ask',
-                          arguments: JSON.stringify(question),
+                          name: toolName,
+                          arguments: JSON.stringify(toolArgs),
                         },
                       },
                     ],
@@ -95,9 +106,9 @@ const server = createServer((request, response) => {
       return;
     }
     if (request.url === '/v1/responses') {
-      const answered = input.input.some(
-        (item) => item.type === 'function_call_output',
-      );
+      const answered = delivery
+        ? !delivery.tool
+        : input.input.some((item) => item.type === 'function_call_output');
       const item = answered
         ? {
             type: 'message',
@@ -109,9 +120,9 @@ const server = createServer((request, response) => {
         : {
             type: 'function_call',
             id: 'fc-test',
-            call_id: 'call-question',
-            name: 'ask',
-            arguments: JSON.stringify(question),
+            call_id: toolId,
+            name: toolName,
+            arguments: JSON.stringify(toolArgs),
             status: 'completed',
           };
       response.end(
@@ -129,6 +140,158 @@ const server = createServer((request, response) => {
     response.end();
   });
 });
+
+function deliveryReply(input, savedOutput, mode) {
+  const serialized = JSON.stringify(input);
+  const state = deliveryState(input);
+  const prefix = `r${state?.round ?? 1}`;
+  const tools = input.messages
+    ? input.messages.filter((message) => message.role === 'tool').length
+    : input.input.filter((item) => item.type === 'function_call_output').length;
+  if (serialized.includes('You own implementation')) {
+    return tools === 0
+      ? {
+          tool: {
+            name: 'mastra_workspace_write_file',
+            args: {
+              path: 'feature.txt',
+              content:
+                state?.round > 0 ? 'implemented repaired' : 'implemented',
+              overwrite: state?.round > 0,
+            },
+          },
+        }
+      : {
+          result: {
+            summary:
+              'Implemented feature.txt and verified the configured check.',
+            blockers: [],
+          },
+        };
+  }
+  if (serialized.includes('target-specific agent_browser and agent_device')) {
+    const actions = [
+      {
+        name: 'agent_browser',
+        args: { targetId: 'web', operation: 'open', args: [] },
+      },
+      {
+        name: 'agent_browser',
+        args: { targetId: 'web', operation: 'snapshot', args: [] },
+      },
+      {
+        name: 'agent_browser',
+        args: { targetId: 'web', operation: 'screenshot', args: [] },
+      },
+      {
+        name: 'agent_device',
+        args: { targetId: 'ios', operation: 'open', args: [] },
+      },
+      {
+        name: 'agent_device',
+        args: { targetId: 'ios', operation: 'snapshot', args: [] },
+      },
+      {
+        name: 'agent_device',
+        args: { targetId: 'ios', operation: 'screenshot', args: [] },
+      },
+    ];
+    const failed = mode === 'delivery-qa-repair' && state?.round === 1;
+    return tools < actions.length
+      ? { tool: actions[tools] }
+      : {
+          result: {
+            verdict: failed ? 'changes-requested' : 'pass',
+            criteria: [
+              {
+                id: 'AC1',
+                status: failed ? 'fail' : 'pass',
+                evidenceIds: [`${prefix}-e1`, `${prefix}-e5`, `${prefix}-e8`],
+                notes: 'Offline test checks and stub UI journeys completed.',
+              },
+            ],
+            findings: failed
+              ? [
+                  {
+                    source: 'qa',
+                    kind: 'defect',
+                    severity: 'blocking',
+                    description: 'Repair the initial candidate.',
+                    criterionId: 'AC1',
+                    evidenceIds: [`${prefix}-e1`],
+                  },
+                ]
+              : [],
+          },
+        };
+  }
+  if (serialized.includes('Inspect the supplied patch and source yourself')) {
+    const failed = mode === 'delivery-review-repair' && state?.round === 1;
+    return tools === 0
+      ? {
+          tool: {
+            name: 'mastra_workspace_read_file',
+            args: { path: 'feature.txt' },
+          },
+        }
+      : {
+          result: {
+            verdict: failed ? 'changes-requested' : 'pass',
+            summary: 'Independently inspected feature.txt and the patch.',
+            findings: failed
+              ? [
+                  {
+                    source: 'review',
+                    kind: 'defect',
+                    severity: 'blocking',
+                    description: 'Repair the initial implementation.',
+                    criterionId: 'AC1',
+                    evidenceIds: [`${prefix}-e1`],
+                  },
+                ]
+              : [],
+          },
+        };
+  }
+  if (serialized.includes('Prepare a concise factual pull request summary'))
+    return {
+      result: {
+        title: 'feat: implement approved issue',
+        changes: ['Add feature.txt.'],
+        testing: ['Configured check and offline web/mobile QA passed.'],
+        limitations: ['UI automation is stubbed in this offline test.'],
+      },
+    };
+  return tools === 0
+    ? {
+        tool: {
+          name: 'ask',
+          args: {
+            question: 'Which export format?',
+            context: '',
+            options: ['CSV', 'JSON'],
+          },
+        },
+      }
+    : { result: JSON.parse(savedOutput) };
+}
+
+function deliveryState(input) {
+  for (const message of input.messages ?? input.input) {
+    if (message.role !== 'user') continue;
+    const text =
+      typeof message.content === 'string'
+        ? message.content
+        : (message.content ?? []).map((part) => part.text ?? '').join('');
+    try {
+      const payload = JSON.parse(text);
+      if (payload.state) return payload.state;
+    } catch {
+      // Exploration starts with plain issue text, not a delivery payload.
+    }
+  }
+  return undefined;
+}
 server.listen(Number(port), '127.0.0.1');
 process.on('SIGTERM', () => {
   server.close();
