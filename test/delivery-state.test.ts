@@ -59,6 +59,25 @@ test('review findings and fallback blockers are applied without mutating history
   ]);
 });
 
+test('candidate mutations during review invalidate approval', async () => {
+  const { operations } = createWorkflowSetup();
+  const state = candidateState();
+  currentRound(state).qa = structuredClone(
+    qaPass,
+  ) as DeliveryState['history'][number]['qa'];
+  operations.assertUnchanged.mockRejectedValue(new Error('Candidate changed.'));
+  await expect(
+    reviewCandidate(state, operations, new AbortController().signal),
+  ).rejects.toThrow('Candidate changed.');
+  expect(operations.review).toHaveBeenCalledOnce();
+  expect(operations.assertUnchanged).toHaveBeenCalledExactlyOnceWith(
+    currentRound(state).revision,
+    expect.any(AbortSignal),
+  );
+  expect(currentRound(state).review).toBeNull();
+  expect(state.status).not.toBe('approved');
+});
+
 test.each([
   { source: 'qa' as const, criterionId: 'AC1', evidenceIds: ['test'] },
   { source: 'review' as const, criterionId: 'unknown', evidenceIds: ['test'] },

@@ -1,5 +1,6 @@
 export type Activity =
   | { kind: 'stage'; message: string }
+  | { kind: 'reasoning'; agent: string; id: string; text: string }
   | {
       kind: 'tool';
       agent: string;

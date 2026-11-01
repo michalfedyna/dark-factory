@@ -91,7 +91,7 @@ bookkeeping, and round history are not included in initial agent task payloads.
 | Sandbox QA        | Only blocked acceptance criteria and their notes, constraints, the current verification plan, and evidence references.                                                                   |
 | Review            | Issue task, allowed paths, full candidate patch, verification plan, current acceptance results/evidence references, and feedback from the last completed review.                         |
 | PR summary        | Issue title/kind/outcome, final implementation summary, check outcomes, QA criterion results/notes, review outcome, and remaining findings.                                              |
-| Progress observer | Current stage, previous observer summary, latest 40 metadata events.                                                                                                                     |
+| Progress observer | Current stage, previous observer summary, latest 40 activity events including bounded provider-exposed reasoning excerpts.                                                               |
 
 `agents/task.ts` selects issue-task content: problem, desired outcome, affected
 users, scope, requirements, acceptance criteria, constraints, assumptions, user
@@ -124,15 +124,23 @@ protocols and check/QA/review repair paths.
 
 `agents/observer.ts` defines a tool-free Mastra agent for user-facing progress,
 separate from the verified final PR summary. `factory/observer.ts` batches a
-bounded window of unprocessed metadata and schedules at most one background request
+bounded window of unprocessed activity and schedules at most one background request
 at a time. Accepted summaries consume their event batch, including empty or duplicate
 summaries that produce no output; activity arriving during a request stays pending.
 Discarded stale or paused results do not consume events. The agent uses its previous
 report to avoid repeating facts and can return an empty summary when nothing new
 is worth reporting. Native Mastra tool hooks in `agents/activity.ts` forward only tool names,
-roles, and execution status; workflow stages and trusted check/gate outcomes
-provide the remaining facts. No source, arguments, results, reasoning, user
-answers, or credentials enter the observer prompt.
+roles, and execution status. `agents/generation.ts` also forwards native reasoning
+deltas without provider metadata. Consecutive deltas from one agent/reasoning block
+are coalesced and capped at the latest 2,000 characters per excerpt, within the
+40-event window. New deltas never merge into a batch already being summarized,
+so consuming that batch cannot drop new thinking. The configured API key and its
+trailing partial prefixes are redacted from excerpts before model calls and from
+summaries before output. Reasoning is untrusted and provisional, not verified
+execution evidence. It can contain private task/source details; redaction is not a
+general secret scanner. Source files, tool arguments/results, and user answers are
+not forwarded directly; encrypted reasoning is never sent to the Observer.
+Workflow stages and trusted check/gate outcomes provide verified status.
 
 Each invocation owns its observer and ties it to the whole-workflow signal.
 After exploration returns a validated, confirmed, ready brief, the preparation
@@ -163,16 +171,17 @@ plain text.
 created or registered. `agents/generation.ts` uses native Mastra `Agent.stream()`
 callbacks and `getFullOutput()` for exploration and every delivery role, retaining
 the same tools, cancellation signal, concurrency, and strict Zod result validation.
-Normal runs still use `Agent.generate()`. Streaming disables eager tool execution
-so an exploration question does not overlap ongoing model output.
+Observed runs also stream so thinking reaches the Observer before completion;
+calls without observation or debug still use `Agent.generate()`. Streaming disables
+eager tool execution so an exploration question does not overlap ongoing model output.
 
-`contracts/debug.ts` separates opt-in diagnostic events from the metadata-only
+`contracts/debug.ts` separates opt-in diagnostic events from the bounded activity
 Observer contract. The agent adapter forwards text, exposed reasoning, tool inputs
 and results, step/usage metadata, errors, and validated results; it does not forward
 provider headers or encrypted reasoning. Trusted check and gate events use the
 same diagnostic sink without entering agent context or controlling execution.
 
-`cli/debug.ts` owns live text headings, formatted detail blocks, credential
+`cli/debug.ts` owns live text and `Thinking` headings, formatted detail blocks, credential
 redaction, control-character sanitization, and prompt buffering. The CLI pauses
 diagnostics during questions, avoids spinner collisions, and closes the writer
 before final output or cancellation so late events cannot print. Diagnostics go
@@ -215,7 +224,8 @@ protocol; Chat Completions is configurable and integration-tested.
 All agents use the transport defaults in `agents/model.ts`, including
 `model.reasoningEffort` (default `medium`) for both protocols. Responses explicitly
 sets `openai.store: false` and requests `reasoning.encrypted_content`, including
-for custom model aliases. Mastra's SDK replays messages, function calls/results,
+for custom model aliases. It also configures `openai.reasoningSummary: 'auto'`;
+the SDK sends this for models it recognizes as reasoning-capable. Mastra's SDK replays messages, function calls/results,
 and encrypted reasoning rather than referencing proxy-side stored items. Reasoning
 without encrypted content is omitted. Chat passes effort through
 `openaiCompatible.reasoningEffort` and uses no Responses-specific options.
@@ -268,8 +278,12 @@ validation, and finishing through `DeliveryOperations`. It does not own mutable
 initialization variables for individual resources.
 
 `delivery/environment.ts` creates run-owned Mastra `Workspace`,
-`LocalFilesystem`, and `LocalSandbox` instances. Implementation gets filesystem
-and sandbox tools; review's filesystem provider is read-only. Browser/mobile QA has no workspace
+`LocalFilesystem`, and `LocalSandbox` instances. Implementation and review get
+separate workspaces with full filesystem and sandbox tools under the same project
+execution policy. Review independently reruns relevant checks and can install
+dependencies or create ignored test artifacts, but must not repair or change the
+candidate. Its workspace stops in `finally`, including on failure or cancellation;
+the run owner destroys it during cleanup. Browser/mobile QA has no workspace
 or file tools. Its explicit tools invoke agent-browser/agent-device from PATH
 through Mastra, record evidence, and restrict operations and global flags.
 Mastra's `toModelOutput` returns captured UI images inline without exposing a
@@ -293,7 +307,7 @@ resources in `finally`. It starts its own services after the primary UI session 
 | `delivery/preparation.ts`               | Require a confirmed brief, recheck the pinned base, and resolve the configured execution mode.                  |
 | `delivery/environment.ts`               | Acquire resources, bind candidate verification plans to round resources, and clean up even after partial setup. |
 | `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                |
-| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                |
+| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation, QA, and review sessions.                                   |
 | `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                   |
 | `delivery/qa-session.ts`                | Own round-specific automation sessions, server readiness, and revision-bound server failure logs.               |
 | `delivery/qa-handoff.ts`                | Decide whether sandbox QA is needed and combine reports without replacing UI passes or failures.                |

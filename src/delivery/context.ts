@@ -34,8 +34,8 @@ export interface RunResources {
   implementationWorkspace: Workspace;
   implementationSandbox: LocalSandbox;
   projectSandboxOptions: ConstructorParameters<typeof LocalSandbox>[0];
-  verificationWorkspace: Workspace;
-  verificationFiles: LocalFilesystem;
+  reviewWorkspace: Workspace;
+  reviewFiles: LocalFilesystem;
   projectSandbox: LocalSandbox;
   automationSandbox: LocalSandbox;
   browserConfig: string;

@@ -6,7 +6,10 @@ import { captureTerminalOutput } from './fixtures/terminal.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
-const text = (value: string, id = 'message'): DebugEvent => ({
+const text = (
+  value: string,
+  id = 'message',
+): Extract<DebugEvent, { kind: 'delta' }> => ({
   kind: 'delta',
   agent: 'implementation',
   channel: 'text',
@@ -31,6 +34,31 @@ test('writes tokens immediately under one heading and closes partial lines befor
     '\nimplementation · Text\nReading files.\n\nimplementation · Completed\n{\n  "summary": "Done"\n}\n',
   );
 });
+
+test.each([true, false])(
+  'streams thinking separately from text and redacts split credentials (TTY: %s)',
+  (tty) => {
+    const { output, log } = captureTerminalOutput(tty);
+    const debug = createDebugWriter(output, ['test-key']);
+    const thinking = (value: string): DebugEvent => ({
+      ...text(value, 'r1'),
+      channel: 'reasoning',
+    });
+    debug.write(thinking('Inspecting '));
+    expect(stripVTControlCharacters(log())).toContain(
+      'implementation · Thinking\nInspecting ',
+    );
+    debug.write(thinking('test-'));
+    debug.write(thinking('key.'));
+    debug.write(text('Done.'));
+    debug.close();
+    const rendered = stripVTControlCharacters(log());
+    expect(rendered.match(/implementation · Thinking/g)).toHaveLength(1);
+    expect(rendered).toContain('Inspecting [redacted].\n');
+    expect(rendered).toContain('implementation · Text\nDone.');
+    expect(rendered).not.toContain('test-key');
+  },
+);
 
 test.each([true, false])(
   'formats details and strips untrusted terminal controls (TTY: %s)',

@@ -17,12 +17,17 @@ export function scenarioReply(request, resultPath, mode) {
   const { payload, toolResults } = request;
   const prefix = payload?.evidence?.[0]?.id.split('-e')[0] ?? 'r1';
   if (role === 'observer') {
+    const thinking = payload.events.findLast(
+      (event) => event.kind === 'reasoning',
+    );
     return {
       result: {
         summary:
           mode === 'observer-silent'
             ? ''
-            : `Current delivery stage: ${payload.stage}.`,
+            : thinking
+              ? `${thinking.agent} is considering: ${thinking.text}`
+              : `Current delivery stage: ${payload.stage}.`,
       },
     };
   }
@@ -273,31 +278,38 @@ export function scenarioReply(request, resultPath, mode) {
   }
   if (role === 'review') {
     const failed = mode === 'delivery-review-repair' && prefix === 'r1';
-    return toolResults === 0
-      ? {
-          tool: {
-            name: 'mastra_workspace_read_file',
-            args: { path: 'feature.txt' },
-          },
-        }
-      : {
-          result: {
-            verdict: failed ? 'changes-requested' : 'pass',
-            summary: 'Independently inspected feature.txt and the patch.',
-            findings: failed
-              ? [
-                  {
-                    source: 'review',
-                    kind: 'defect',
-                    severity: 'blocking',
-                    description: 'Repair the initial implementation.',
-                    criterionId: 'AC1',
-                    evidenceIds: [`${prefix}-e1`],
-                  },
-                ]
-              : [],
-          },
-        };
+    const actions = [
+      {
+        name: 'mastra_workspace_read_file',
+        args: { path: 'feature.txt' },
+      },
+      {
+        name: 'mastra_workspace_execute_command',
+        args: {
+          command: `node -e "if (process.env.DARKFACTORY_API_KEY) process.exit(2); if (!require('node:fs').readFileSync('feature.txt', 'utf8').startsWith('implemented')) process.exit(1); console.log('Independent review command passed');"`,
+        },
+      },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    return {
+      result: {
+        verdict: failed ? 'changes-requested' : 'pass',
+        summary:
+          'Independently inspected feature.txt and the patch, and ran a command against the candidate.',
+        findings: failed
+          ? [
+              {
+                source: 'review',
+                kind: 'defect',
+                severity: 'blocking',
+                description: 'Repair the initial implementation.',
+                criterionId: 'AC1',
+                evidenceIds: [`${prefix}-e1`],
+              },
+            ]
+          : [],
+      },
+    };
   }
   if (role === 'summary')
     return {

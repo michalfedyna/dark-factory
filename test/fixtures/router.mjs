@@ -104,8 +104,18 @@ const server = createServer((request, response) => {
     const reply = scenarioReply(input, resultPath, mode);
     if (body.stream) {
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      for (const event of encodeStreamReply(request.url, input, reply, mode))
+      for (const event of encodeStreamReply(request.url, input, reply, mode)) {
         response.write(`data: ${JSON.stringify(event)}\n\n`);
+        if (
+          mode === 'observer-thinking' &&
+          role === 'implementation' &&
+          input.toolResults === 0 &&
+          event.type === 'response.reasoning_summary_text.delta'
+        )
+          await new Promise((resolve) => {
+            setTimeout(resolve, 1_500);
+          });
+      }
       response.end('data: [DONE]\n\n');
       return;
     }

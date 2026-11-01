@@ -116,7 +116,7 @@ export function createDebugWriter(
       flush();
       const label = {
         text: 'Text',
-        reasoning: 'Reasoning',
+        reasoning: 'Thinking',
       }[event.channel];
       const heading = clean(`${event.agent} · ${label}`).replace(/\s+/g, ' ');
       output.write('\n');

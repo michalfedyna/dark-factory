@@ -18,6 +18,7 @@ export function decodeRequest(input) {
   }
   return {
     model: input.model,
+    reasoningSummary: input.reasoning?.summary,
     tools: (input.tools ?? []).map((tool) => tool.name ?? tool.function?.name),
     payload,
     messageCount: messages.length,
@@ -35,6 +36,8 @@ export function statelessResponsesError(input, mode) {
     return 'Server-side conversations are not supported.';
   if (!input.include?.includes('reasoning.encrypted_content'))
     return 'Request encrypted reasoning for stateless replay.';
+  if (input.model === 'gpt-6.1-sol' && input.reasoning?.summary !== 'auto')
+    return 'Request provider-exposed reasoning summaries.';
   const reasoning = input.input.filter((item) => item.type === 'reasoning');
   const calls = input.input.filter((item) => item.type === 'function_call');
   const results = input.input.filter(
@@ -104,9 +107,10 @@ export function encodeReply(url, request, reply, mode) {
         {
           type: 'reasoning',
           id: `rs-test-${request.messageCount}`,
-          summary: [
-            { type: 'summary_text', text: 'Offline reasoning summary.' },
-          ],
+          summary:
+            mode === 'observer-no-reasoning' || !request.reasoningSummary
+              ? []
+              : [{ type: 'summary_text', text: 'Offline reasoning summary.' }],
           ...(mode === 'no-encrypted-reasoning'
             ? {}
             : { encrypted_content: `encrypted-test-${request.messageCount}` }),
@@ -204,7 +208,7 @@ export function encodeStreamReply(url, request, reply, mode) {
         ...(item.type === 'function_call' ? { arguments: '' } : {}),
       },
     });
-    if (item.type === 'reasoning') {
+    if (item.type === 'reasoning' && item.summary.length) {
       chunks.push({
         type: 'response.reasoning_summary_part.added',
         item_id: item.id,

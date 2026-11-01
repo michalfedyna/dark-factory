@@ -18,6 +18,7 @@ test.each(['gpt-6.1-sol', 'custom-reasoning-alias'])(
     expect(config.defaultOptions.providerOptions).toEqual({
       openai: {
         reasoningEffort: 'medium',
+        reasoningSummary: 'auto',
         store: false,
         include: ['reasoning.encrypted_content'],
       },

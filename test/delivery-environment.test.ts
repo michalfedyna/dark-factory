@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { factoryConfigSchema } from '../src/config/schema.js';
 import { createSandboxQa } from '../src/agents/sandbox-qa.js';
+import { createReview } from '../src/agents/review.js';
 import { qaSchema, type DeliveryRound } from '../src/contracts/delivery.js';
 import { createDeliveryAgents } from '../src/delivery/agent-sessions.js';
 import type { DeliveryOptions } from '../src/delivery/context.js';
@@ -27,9 +28,11 @@ import {
   implementation,
   projectPlan,
 } from './fixtures/delivery.js';
+import { qaPass, reviewPass } from './fixtures/workflow.js';
 
 vi.mock('../src/integrations/git/repository.js');
 vi.mock('../src/agents/sandbox-qa.js');
+vi.mock('../src/agents/review.js');
 const projectCommand = vi.hoisted(() =>
   vi.fn<NonNullable<LocalSandbox['executeCommand']>>(),
 );
@@ -206,10 +209,11 @@ test('partial setup failure destroys every acquired resource and never exposes a
   );
   expect(() => environment.requireRun()).toThrow('not been prepared');
   await environment.close();
-  expect(sandboxInstances).toHaveLength(3);
-  expect(destroySandbox.mock.contexts).toEqual(sandboxInstances.slice(1));
+  expect(sandboxInstances).toHaveLength(4);
+  expect(destroySandbox.mock.contexts).toEqual(sandboxInstances.slice(1, 3));
   // Mastra disposes a pending static sandbox without invoking its destroy hook.
   expect(sandboxInstances[0]?.status).toBe('destroyed');
+  expect(sandboxInstances[3]?.status).toBe('destroyed');
   expect(destroyWorkspace).toHaveBeenCalledTimes(2);
 });
 
@@ -237,12 +241,12 @@ test('preparation needs only Git metadata, not an existing executable app', asyn
     ['.'],
     expect.any(AbortSignal),
   );
-  expect(sandboxInstances).toHaveLength(3);
+  expect(sandboxInstances).toHaveLength(4);
   expect(projectCommand).not.toHaveBeenCalled();
   const run = environment.requireRun();
   expect(run.project.allowNetwork).toBe(true);
   expect(sandboxSettings.map((settings) => settings?.timeout)).toEqual([
-    0, 0, 0,
+    0, 0, 0, 0,
   ]);
   expect(run.project).not.toHaveProperty('checks');
   expect(
@@ -273,6 +277,7 @@ test('host execution does not require or detect a native isolation backend', asy
   expect(detection).not.toHaveBeenCalled();
   const run = environment.requireRun();
   expect(run.implementationSandbox.isolation).toBe('none');
+  expect(run.reviewWorkspace.sandbox).toMatchObject({ isolation: 'none' });
   expect(run.projectSandbox.isolation).toBe('none');
   expect(
     JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
@@ -280,7 +285,7 @@ test('host execution does not require or detect a native isolation backend', asy
 });
 
 test.skipIf(!nativeIsolation.available)(
-  'native isolation is applied to implementation and project commands when requested',
+  'native isolation is applied to implementation, review, and project commands when requested',
   async () => {
     const { backend } = nativeIsolation;
     const { environment, options, candidate } = await setup(projectPlan, {
@@ -294,6 +299,7 @@ test.skipIf(!nativeIsolation.available)(
     await environment.prepare(brief, options.signal);
     const run = environment.requireRun();
     expect(run.implementationSandbox.isolation).toBe(backend);
+    expect(run.reviewWorkspace.sandbox).toMatchObject({ isolation: backend });
     expect(run.projectSandbox.isolation).toBe(backend);
     expect(
       environment.beginRound(candidate()).sandboxQaWorkspace.sandbox,
@@ -301,6 +307,93 @@ test.skipIf(!nativeIsolation.available)(
     expect(
       JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
     ).toMatchObject({ sandbox: { isolation: 'native' } });
+  },
+);
+
+test('review has its own full workspace and current evidence access', async () => {
+  const { environment, options, candidate } = await setup();
+  await environment.prepare(brief, options.signal);
+  const round = environment.beginRound(candidate());
+  const run = environment.requireRun();
+  expect(run.reviewWorkspace).not.toBe(run.implementationWorkspace);
+  expect(run.reviewWorkspace.filesystem).toBe(run.reviewFiles);
+  expect(run.reviewWorkspace.sandbox).toBeInstanceOf(LocalSandbox);
+  expect(run.reviewWorkspace.sandbox).not.toBe(run.implementationSandbox);
+  expect(run.reviewWorkspace.sandbox).not.toBe(run.projectSandbox);
+  expect(run.reviewWorkspace.sandbox).not.toBe(
+    round.sandboxQaWorkspace.sandbox,
+  );
+  expect(run.reviewFiles.readOnly).not.toBe(true);
+  await run.reviewFiles.writeFile('review-probe.txt', 'probe');
+  expect(
+    await readFile(join(run.repository.path, 'review-probe.txt'), 'utf8'),
+  ).toBe('probe');
+  const evidence = await round.evidence.record(
+    {
+      kind: 'check',
+      targetId: null,
+      operation: 'test',
+      exitCode: 0,
+    },
+    'Current evidence.',
+  );
+  expect(
+    await run.reviewFiles.readFile(evidence.path, { encoding: 'utf8' }),
+  ).toContain('Current evidence.');
+  const next = environment.beginRound(candidate(2, 'repair'));
+  expect(run.reviewFiles.allowedPaths).toEqual([next.evidence.directory]);
+  await expect(run.reviewFiles.readFile(evidence.path)).rejects.toThrow();
+});
+
+test.each(['pass', 'error', 'cancel', 'patch-error'] as const)(
+  'review stops its own workspace after %s and preserves the run execution policy',
+  async (outcome) => {
+    const { environment, options, controller } = await setup();
+    await environment.prepare(brief, options.signal);
+    const run = environment.requireRun();
+    const state = candidateState();
+    state.history[0]!.qa = qaSchema.parse(qaPass);
+    const result = { ...reviewPass, verdict: 'pass' as const };
+    const generate = vi
+      .fn<ReturnType<typeof createReview>>()
+      .mockImplementation((input) => {
+        expect(input.workspace).toBe(run.reviewWorkspace);
+        expect(input.context.verification).toEqual(
+          state.history[0]!.implementation.verification,
+        );
+        expect(input.signal).toBe(options.signal);
+        if (outcome === 'cancel') {
+          controller.abort(new Error('Cancelled'));
+          return Promise.reject(new Error('Cancelled'));
+        }
+        return outcome === 'error'
+          ? Promise.reject(new Error('Provider failed'))
+          : Promise.resolve(result);
+      });
+    vi.mocked(createReview).mockReturnValueOnce(generate);
+    if (outcome === 'patch-error')
+      vi.mocked(run.repository.git).mockRejectedValueOnce(
+        new Error('Diff failed'),
+      );
+    const stop = vi.spyOn(run.reviewWorkspace, 'stop');
+    const agents = createDeliveryAgents(options);
+    const pending = agents.review(run, state, options.signal);
+    if (outcome === 'pass') await expect(pending).resolves.toEqual(result);
+    else
+      await expect(pending).rejects.toThrow(
+        outcome === 'cancel'
+          ? 'Cancelled'
+          : outcome === 'patch-error'
+            ? 'Diff failed'
+            : 'Provider failed',
+      );
+    expect(stop).toHaveBeenCalledOnce();
+    const settings =
+      sandboxSettings[
+        sandboxInstances.indexOf(run.reviewWorkspace.sandbox as LocalSandbox)
+      ];
+    expect(settings).toEqual(run.projectSandboxOptions);
+    expect(settings?.env).not.toHaveProperty('DARKFACTORY_API_KEY');
   },
 );
 

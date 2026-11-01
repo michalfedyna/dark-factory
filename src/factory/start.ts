@@ -55,8 +55,12 @@ export async function startFactory(
         let observer: ReturnType<typeof createProgressObserver> | undefined;
         const observe: Observe = (activity) => {
           observer?.observe(activity);
-          // Agent stream chunks already carry tool activity; stages use progress.
-          if (activity.kind !== 'tool' && activity.kind !== 'stage')
+          // Agent chunks carry tools and reasoning; stages use progress.
+          if (
+            activity.kind !== 'tool' &&
+            activity.kind !== 'reasoning' &&
+            activity.kind !== 'stage'
+          )
             options.debug?.({ kind: 'activity', activity });
         };
         const report = (message: string) => {
@@ -78,6 +82,7 @@ export async function startFactory(
                     emit: summary,
                     intervalMs: config.observer.intervalMs,
                     timeoutMs: config.observer.timeoutMs,
+                    secrets: [apiKey],
                     signal,
                   })
                 : undefined;

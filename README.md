@@ -93,8 +93,8 @@ npm run dev -- start --debug
 # Or: dark start --debug
 ```
 
-Debug mode streams agent text, provider-exposed reasoning, tool arguments/results,
-step usage, errors, and validated results from exploration through delivery. Agent
+Debug mode streams agent text, provider-exposed reasoning under `Thinking` headings,
+tool arguments/results, step usage, errors, and validated results from exploration through delivery. Agent
 headings and formatted detail blocks keep the output readable; `NO_COLOR` disables
 color and redirected stderr stays plain. The Observer is not started, even when
 enabled in config. Prompts remain interactive and stdout is still only the final
@@ -250,7 +250,9 @@ verification plan, and evidence references. It can read files and run commands,
 including API/CLI tests, but cannot change tracked source, tests, or configuration.
 Successful criteria require its own recorded sandbox command evidence.
 Review gets the task, patch, allowed paths, current acceptance/evidence references,
-and the last relevant reviewer feedback. The PR summary gets only final outcomes.
+and the last relevant reviewer feedback. It has full filesystem, shell, and
+background-process tools to independently rerun checks and investigate findings,
+but must not repair or change the candidate. The PR summary gets only final outcomes.
 
 The workflow still retains complete history for gates and artifacts. Implementation
 and review can read needed source and evidence through their role-specific tools;
@@ -259,8 +261,8 @@ only the fallback QA has that access. See [agent context](docs/architecture.md#a
 ### Background observer
 
 The observer is a separate, tool-free Mastra agent. It turns workflow stages,
-tool activity, check outcomes, and delivery gate metadata into short `Observer:`
-updates on stderr. It starts only after exploration returns a validated, confirmed,
+agent thinking, tool activity, check outcomes, and delivery gate metadata into short
+`Observer:` updates on stderr. It starts only after exploration returns a validated, confirmed,
 ready brief, then runs alongside delivery, not as a blocking step.
 In a terminal, updates appear as compact accent blocks with a bold cyan heading
 and a cyan left border, wrapped to the terminal width. `NO_COLOR` disables color;
@@ -269,10 +271,21 @@ lines before and after them.
 Exploration activity is not collected or summarized; stale results from a previous
 delivery stage are discarded. Final stdout JSON is unchanged.
 
-The observer receives up to 40 new metadata events since its last processed update,
-the current stage, and its previous report—not source files, tool arguments/results,
-user answers, reasoning, or credentials. Reports describe only new developments,
-without recapping earlier progress, and stay silent when there is nothing new to
+The observer receives up to 40 new activity events since its last processed update,
+the current stage, and its previous report. Consecutive reasoning chunks are combined
+into excerpts limited to the latest 2,000 characters each. These are the provider's
+exposed reasoning or summaries, not hidden model thoughts or encrypted reasoning.
+Responses requests explicitly ask for reasoning summaries; availability and timing
+depend on the model and proxy. Models without reasoning output still get normal
+activity updates.
+
+Source files, tool arguments/results, and user answers are not forwarded directly.
+Reasoning can mention private task or source details, and excerpts are sent to the
+configured Observer model. The configured API key is redacted before summarization;
+this is not a general secret scanner. Disable the Observer if this is unsuitable.
+The Observer describes thinking as tentative investigation, not verified results.
+Reports describe only new developments, without recapping earlier progress, and
+stay silent when there is nothing new to
 report. Tool completion is not proof of passing verification.
 Summaries are informational and never approve work or control delivery gates.
 
@@ -318,8 +331,8 @@ information.
 directly to preparation. The CLI starts and cancels one native workflow run.
 
 Delivery uses a nested Mastra repair loop, not a second top-level run.
-The loop has no execution-time or repair-round budget. Implementation uses a
-per-run workspace and sandbox; review gets read-only source access. Browser/mobile
+The loop has no execution-time or repair-round budget. Implementation and review use
+separate per-run workspaces and sandboxes. Browser/mobile
 QA gets only application-testing tools; conditional sandbox QA gets its own
 round-owned workspace and sandbox. Trusted runners capture revision-bound evidence. See
 [architecture](docs/architecture.md) and [delivery](docs/delivery.md).

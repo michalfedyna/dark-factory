@@ -191,9 +191,16 @@ test.each([
         for (const record of request.payload?.evidence as object[])
           expect(record).not.toHaveProperty('path');
       }
-      expect(contexts.find(({ role }) => role === 'review')?.tools).toContain(
-        'mastra_workspace_read_file',
-      );
+      for (const request of contexts.filter(({ role }) => role === 'review'))
+        expect(request.tools).toEqual(
+          expect.arrayContaining([
+            'mastra_workspace_read_file',
+            'mastra_workspace_write_file',
+            'mastra_workspace_execute_command',
+            'mastra_workspace_get_process_output',
+            'mastra_workspace_kill_process',
+          ]),
+        );
       const sandboxRequests = contexts.filter(
         ({ role }) => role === 'sandbox-qa',
       );
@@ -329,6 +336,13 @@ test.each([
         expect(state.history[0]!.qa?.verdict).toBe('pass');
       }
       expect(persisted).toContain('Independently inspected feature.txt');
+      if (
+        (mode === 'delivery-long-qa' || mode === 'delivery-sandbox-qa') &&
+        api === 'responses'
+      )
+        expect(run.stderr()).toContain(
+          '"result": "Independent review command passed\\n"',
+        );
       expect(
         (JSON.parse(persisted) as { history: unknown[] }).history,
       ).toHaveLength(rounds);

@@ -8,8 +8,17 @@ import { createActivityHooks } from './activity.js';
 function reportChunk(
   agent: string,
   chunk: ChunkType<unknown>,
-  debug: Debug,
+  debug?: Debug,
+  observe?: Observe,
 ): void {
+  if (chunk.type === 'reasoning-delta')
+    observe?.({
+      kind: 'reasoning',
+      agent,
+      id: chunk.payload.id,
+      text: chunk.payload.text,
+    });
+  if (!debug) return;
   const detail = (label: string, value: unknown) =>
     debug({ kind: 'detail', agent, label, value });
   switch (chunk.type) {
@@ -77,7 +86,7 @@ function reportChunk(
   }
 }
 
-/** Use the same tools and strict result validation with or without diagnostics. */
+/** Use the same tools and strict result validation with or without observation. */
 export async function generateResult<T>(
   agent: Agent,
   schema: z.ZodType<T>,
@@ -107,16 +116,20 @@ export async function generateResult<T>(
       label: 'Started',
       value: message,
     });
-    const response = debug
-      ? await (
-          await agent.stream(message, {
-            ...options,
-            // Finish model output before opening an interactive ask prompt.
-            eagerToolExecution: false,
-            onChunk: (chunk) => reportChunk(agent.id, chunk, debug),
-          })
-        ).getFullOutput()
-      : await agent.generate(message, options);
+    const response =
+      debug || input.observe
+        ? await (
+            await agent.stream(message, {
+              ...options,
+              // Finish model output before opening an interactive ask prompt.
+              eagerToolExecution: false,
+              onChunk: (chunk) => {
+                if (!input.signal.aborted)
+                  reportChunk(agent.id, chunk, debug, input.observe);
+              },
+            })
+          ).getFullOutput()
+        : await agent.generate(message, options);
     input.signal.throwIfAborted();
     if (response.error) throw response.error;
     const result = schema.parse(response.object);

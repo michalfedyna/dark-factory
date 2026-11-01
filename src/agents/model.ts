@@ -20,6 +20,7 @@ export function createModelConfig(
           ? {
               openai: {
                 reasoningEffort: model.reasoningEffort,
+                reasoningSummary: 'auto',
                 store: false,
                 include: ['reasoning.encrypted_content' as const],
               },

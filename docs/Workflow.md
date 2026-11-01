@@ -107,7 +107,8 @@ acceptance criteria, checks, and completion conditions.
   command access, to verify only criteria the first agent could not check. It cannot
   overwrite observed failures, change the candidate, or replace independent review.
 - Reviewers receive the approved plan, integrated candidate, and relevant evidence
-  with read-only source access and context independent of the author.
+  with full filesystem and command access and context independent of the author.
+  They independently rerun checks but must not repair or change the candidate.
 - Trusted workers enforce permissions, execute checks, integrate changes, and
   publish. Agents request these operations; they do not control the gates.
 

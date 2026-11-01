@@ -13,6 +13,7 @@ function setup(
   summarize = vi
     .fn<SummarizeProgress>()
     .mockResolvedValue('Inspecting the repository.'),
+  secrets: string[] = [],
 ) {
   vi.useFakeTimers();
   const controller = new AbortController();
@@ -22,13 +23,103 @@ function setup(
     emit,
     intervalMs: 1_000,
     timeoutMs: 500,
+    secrets,
     signal: controller.signal,
   });
   observers.push(observer);
   return { ...observer, summarize, emit, controller };
 }
 
+const thinking = (text: string, id = 'r1') => ({
+  kind: 'reasoning' as const,
+  agent: 'implementation',
+  id,
+  text,
+});
+
 describe('background progress observer', () => {
+  test('coalesces thinking tokens without evicting metadata and bounds each excerpt', async () => {
+    const observer = setup();
+    observer.observe({ kind: 'stage', message: 'Implementing' });
+    for (let i = 0; i < 500; i++) observer.observe(thinking('token '));
+    observer.observe(thinking('Reviewing the validation path.', 'r2'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(observer.summarize.mock.calls[0]![0].events).toEqual([
+      { kind: 'stage', message: 'Implementing' },
+      thinking('token '.repeat(500).slice(-2_000)),
+      thinking('Reviewing the validation path.', 'r2'),
+    ]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(observer.summarize).toHaveBeenCalledOnce();
+  });
+
+  test('only consumes thinking included in the in-flight snapshot', async () => {
+    let finish: (summary: string) => void = () => {};
+    const observer = setup(
+      vi
+        .fn<SummarizeProgress>()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        )
+        .mockResolvedValue('Investigating validation.'),
+    );
+    observer.observe(thinking('First thought.'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    observer.observe(thinking('New '));
+    observer.observe(thinking('thought.'));
+    expect(observer.summarize.mock.calls[0]![0].events).toEqual([
+      thinking('First thought.'),
+    ]);
+    finish('Inspecting the repository.');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(observer.summarize.mock.calls[1]![0].events).toEqual([
+      thinking('New thought.'),
+    ]);
+  });
+
+  test('redacts configured credentials in reasoning across chunks, partial snapshots, and summaries', async () => {
+    const observer = setup(
+      vi.fn<SummarizeProgress>().mockResolvedValue('Inspecting test-key.'),
+      ['test-key'],
+    );
+    observer.observe(thinking('Using test-'));
+    observer.observe(thinking('key.'));
+    observer.observe(thinking('Checking test-', 'r2'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(observer.summarize.mock.calls[0]![0].events).toEqual([
+      thinking('Using [redacted].'),
+      thinking('Checking [redacted]', 'r2'),
+    ]);
+    expect(observer.emit).toHaveBeenCalledExactlyOnceWith(
+      'Inspecting [redacted].',
+    );
+  });
+
+  test('ignores empty reasoning and keeps different agents and tool boundaries separate', async () => {
+    const observer = setup();
+    observer.observe(thinking(''));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(observer.summarize).not.toHaveBeenCalled();
+    const tool = {
+      kind: 'tool' as const,
+      agent: 'implementation',
+      tool: 'read',
+      status: 'started' as const,
+    };
+    const events = [
+      thinking('Reading.'),
+      tool,
+      thinking('Inspecting.'),
+      { ...thinking('Checking.'), agent: 'review' },
+    ];
+    for (const event of events) observer.observe(event);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(observer.summarize.mock.calls[0]![0].events).toEqual(events);
+  });
+
   test('batches metadata, bounds context, and does not call the model on idle ticks', async () => {
     const observer = setup();
     observer.observe({ kind: 'stage', message: 'Inspecting repository' });

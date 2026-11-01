@@ -129,7 +129,13 @@ operating systems, and external tools may still impose their own limits or fail.
 ## Gates and repairs
 
 - Implementation, both QA stages, review, and summary use fresh Mastra agents. Implementation
-  receives filesystem/sandbox tools. Review has a read-only filesystem provider.
+  and review receive separate full Mastra filesystem/sandbox workspaces. Review can
+  install dependencies, rerun verification commands, and start background processes
+  under the configured project execution/network policy, without factory credentials.
+  It independently checks the candidate and reports actual command results and
+  limitations; it must not repair source or edit tracked tests/configuration.
+  Ignored temporary test artifacts are allowed. Its processes stop in `finally`,
+  and the run owner destroys its workspace on completion, failure, or cancellation.
   Browser/mobile QA has no workspace, filesystem, or shell tools: it only tests running application
   behavior against acceptance criteria through constrained browser/device operations.
   It does not inspect or review source, tests, configuration, diffs, or log files.
@@ -137,7 +143,7 @@ operating systems, and external tools may still impose their own limits or fail.
   QA and review must reject missing required UI targets; review also inspects the
   implementation's verification plan for irrelevant, no-op, or weakened checks.
   Implementers receive check-log excerpts for repairs; review can read current
-  evidence and screenshot images through its read-only filesystem provider.
+  evidence and screenshot images through its filesystem provider.
   Browser/mobile QA receives evidence metadata without file paths and captured UI images directly
   from testing tools. Check outcomes cannot replace observing criterion behavior;
   it reports criteria it cannot test through available targets as blocked,

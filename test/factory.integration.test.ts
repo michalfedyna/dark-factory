@@ -76,7 +76,9 @@ test.each(['chat', 'responses'])(
       expect(run.stderr()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('encrypted-test-');
       if (api === 'responses')
-        expect(run.stderr()).toContain('Offline reasoning summary.');
+        expect(run.stderr()).toContain(
+          'exploration · Thinking\nOffline reasoning summary.',
+        );
       const contexts = await readFile(
         join(run.directory, 'agent-contexts.jsonl'),
         'utf8',
@@ -157,12 +159,70 @@ test.each(['chat', 'responses'])(
         expect(payload.events).not.toContainEqual(
           expect.objectContaining({ kind: 'tool', agent: 'exploration' }),
         );
+        expect(payload.events).not.toContainEqual(
+          expect.objectContaining({ kind: 'reasoning', agent: 'exploration' }),
+        );
       }
       expect(run.stderr()).not.toContain('Implement this brief?');
       expect(run.stderr()).not.toContain('test-key');
       expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
         'ready',
       );
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
+
+test.each([
+  ['observer-thinking', true],
+  ['observer-no-reasoning', false],
+] as const)(
+  'Observer reports provider thinking during generation and tolerates unavailable reasoning (%s)',
+  async (mode, hasReasoning) => {
+    const run = await factory('responses', 'Export issues', mode);
+    try {
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
+      const observations = (
+        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              role: string;
+              payload: Parameters<SummarizeProgress>[0];
+            },
+        )
+        .filter(({ role }) => role === 'observer');
+      expect(observations.length).toBeGreaterThan(0);
+      const firstThinking = observations.find(({ payload }) =>
+        payload.events.some((event) => event.kind === 'reasoning'),
+      );
+      expect(Boolean(firstThinking)).toBe(hasReasoning);
+      if (hasReasoning) {
+        expect(firstThinking!.payload.events).not.toContainEqual(
+          expect.objectContaining({ kind: 'tool', agent: 'implementation' }),
+        );
+        expect(run.stderr()).toContain(
+          'Observer: implementation is considering: Offline reasoning summary.',
+        );
+      } else {
+        expect(run.stderr()).toContain(
+          'Observer: Current delivery stage: Implementing (round 1).',
+        );
+        expect(run.stderr()).not.toContain('Offline reasoning summary.');
+      }
+      expect(JSON.stringify(observations)).not.toContain('encrypted-test-');
+      expect(JSON.stringify(observations)).not.toContain('test-key');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
+      expect(run.stdout()).not.toContain('Offline reasoning summary.');
       await run.assertStopped();
     } finally {
       await run.clean();

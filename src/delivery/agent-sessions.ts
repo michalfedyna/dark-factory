@@ -141,23 +141,27 @@ export function createDeliveryAgents(options: DeliveryOptions) {
     ) => {
       const round = currentRound(state);
       options.progress('Reviewing code');
-      const patch = await run.repository.git(
-        [
-          'diff',
-          '--no-ext-diff',
-          '--no-textconv',
-          '--no-renames',
-          state.baseRevision,
-          round.revision,
-        ],
-        signal,
-      );
-      return review({
-        context: reviewContext(state, run.project, patch),
-        workspace: run.verificationWorkspace,
-        signal,
-        ...observation,
-      });
+      try {
+        const patch = await run.repository.git(
+          [
+            'diff',
+            '--no-ext-diff',
+            '--no-textconv',
+            '--no-renames',
+            state.baseRevision,
+            round.revision,
+          ],
+          signal,
+        );
+        return await review({
+          context: reviewContext(state, run.project, patch),
+          workspace: run.reviewWorkspace,
+          signal,
+          ...observation,
+        });
+      } finally {
+        await run.reviewWorkspace.stop();
+      }
     },
     summarize: (
       _run: RunResources,

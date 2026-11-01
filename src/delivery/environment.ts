@@ -62,7 +62,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         candidate.revision,
         candidate.round,
       );
-      run.verificationFiles.setAllowedPaths([evidence.directory]);
+      run.reviewFiles.setAllowedPaths([evidence.directory]);
       const sandboxQaSandbox = own(new LocalSandbox(run.projectSandboxOptions));
       recordSandboxQaCommands(sandboxQaSandbox, evidence);
       const sandboxQaWorkspace = own(
@@ -166,13 +166,14 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       );
       // Workspace.destroy owns its static sandbox from this point on.
       resources.delete(implementationSandbox);
-      const verificationFiles = new LocalFilesystem({
+      const reviewSandbox = own(new LocalSandbox(projectSandboxOptions));
+      const reviewFiles = new LocalFilesystem({
         basePath: repository.path,
-        readOnly: true,
       });
-      const verificationWorkspace = own(
-        new Workspace({ filesystem: verificationFiles }),
+      const reviewWorkspace = own(
+        new Workspace({ filesystem: reviewFiles, sandbox: reviewSandbox }),
       );
+      resources.delete(reviewSandbox);
       const browserConfig = join(directory, 'browser.json');
       await writeFile(browserConfig, '{}', { mode: 0o600 });
       signal.throwIfAborted();
@@ -185,8 +186,8 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         implementationWorkspace,
         implementationSandbox,
         projectSandboxOptions,
-        verificationWorkspace,
-        verificationFiles,
+        reviewWorkspace,
+        reviewFiles,
         projectSandbox,
         automationSandbox,
         browserConfig,
