@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   LocalFilesystem,
   LocalSandbox,
@@ -10,8 +10,9 @@ import { createImplementation } from '../agents/implementation.js';
 import { createQa } from '../agents/qa.js';
 import { createReview } from '../agents/review.js';
 import { createSummary } from '../agents/summary.js';
-import type { DeliveryConfig } from '../config/delivery.js';
 import type { FactoryConfig } from '../config/schema.js';
+import { projectSchema, type Project } from '../contracts/project.js';
+import type { IssueBrief } from '../contracts/issue.js';
 import {
   deliveryResultSchema,
   type DeliveryRound,
@@ -33,21 +34,20 @@ import {
 } from '../integrations/qa/evidence.js';
 import { validateQa } from '../integrations/qa/gate.js';
 import { createQaTools } from '../tools/qa.js';
-import type { DeliveryOperations } from '../workflows/delivery.js';
+import type { DeliveryOperations } from '../workflows/default.js';
 
 export function createDeliveryRuntime(options: {
-  config: DeliveryConfig;
+  inspect: (brief: IssueBrief, signal: AbortSignal) => Promise<Project>;
   model: FactoryConfig['model'];
   apiKey: string;
-  directory: string;
   runId: string;
   ask: Ask;
   signal: AbortSignal;
   progress: (message: string) => void;
 }) {
-  const { config, runId, ask, progress } = options;
-  const directory = resolve(options.directory, config.runsDir, runId);
-  const source = resolve(options.directory, config.repository);
+  const { runId, ask, progress } = options;
+  let config: Project;
+  let directory: string;
   const implement = createImplementation(options.model, options.apiKey);
   const qa = createQa(options.model, options.apiKey);
   const review = createReview(options.model, options.apiKey);
@@ -90,7 +90,7 @@ export function createDeliveryRuntime(options: {
     return answer === accept;
   };
   const projectCommand = async (
-    command: DeliveryConfig['checks'][number] | DeliveryConfig['setup'][number],
+    command: Project['checks'][number] | Project['setup'][number],
     signal: AbortSignal,
   ) => {
     signal.throwIfAborted();
@@ -122,18 +122,27 @@ export function createDeliveryRuntime(options: {
     await commands.stop();
   };
   const operations: DeliveryOperations = {
-    maxRepairRounds: config.maxRepairRounds,
+    maxRepairRounds: 3,
     prepare: async (brief, signal) => {
+      progress('Inspecting repository');
+      config = projectSchema.parse(await options.inspect(brief, signal));
+      signal.throwIfAborted();
+      const source = config.repository;
+      directory = join(source, '.darkfactory', 'runs', runId);
       const base = await readBase(source, config.baseBranch, signal);
+      if (base !== config.baseRevision)
+        throw new Error(
+          'The base branch changed during inspection. Start a new run.',
+        );
       const detection = z
         .object({
           available: z.boolean(),
           backend: z.enum(['none', 'seatbelt', 'bwrap']),
         })
         .parse(LocalSandbox.detectIsolation());
-      if (config.isolation === 'native' && !detection.available)
+      if (!detection.available || detection.backend === 'none')
         throw new Error(
-          'Native sandbox isolation is unavailable. Install the required backend or explicitly configure trusted local isolation: none.',
+          'Native sandbox isolation is unavailable. Install Seatbelt or Bubblewrap before running project commands.',
         );
       const accepted = await approval(
         'Implement this brief?',
@@ -142,7 +151,9 @@ export function createDeliveryRuntime(options: {
             brief,
             repository: source,
             baseRevision: base,
-            delivery: config,
+            project: config,
+            isolation: detection.backend,
+            maxRepairRounds: operations.maxRepairRounds,
             warning:
               'Project commands and browser/device automation run on this host. Use only trusted repositories and test accounts. Local sandboxing is not a complete security boundary. Your original checkout is not edited. Publication requires a separate approval.',
           },
@@ -154,7 +165,7 @@ export function createDeliveryRuntime(options: {
         signal,
       );
       if (!accepted) throw new Error('Implementation was not approved.');
-      await mkdir(resolve(options.directory, config.runsDir), {
+      await mkdir(join(source, '.darkfactory', 'runs'), {
         recursive: true,
         mode: 0o700,
       });
@@ -187,7 +198,7 @@ export function createDeliveryRuntime(options: {
       const sandbox = () =>
         new LocalSandbox({
           workingDirectory: repository.path,
-          isolation: config.isolation === 'native' ? detection.backend : 'none',
+          isolation: detection.backend,
           env: { HOME: home, CI: '1' },
           nativeSandbox: {
             allowNetwork: config.allowNetwork,
@@ -391,13 +402,14 @@ export function createDeliveryRuntime(options: {
           mode: 0o600,
         });
         if (
-          await approval(
+          config.githubRepo &&
+          (await approval(
             'Push this candidate and create a draft GitHub PR?',
             `${config.githubRepo} ← darkfactory/${runId}\n\n${state.summary.title}\n\n${preview}\nScreenshots and the verification manifest will be committed and published. Inspect screenshots for sensitive data before approving. Private logs remain in ${directory}.`,
             'Publish',
             'Keep local',
             signal,
-          )
+          ))
         ) {
           progress('Publishing draft PR');
           pullRequestUrl = await publishPullRequest({
@@ -419,7 +431,11 @@ export function createDeliveryRuntime(options: {
             : pullRequestUrl
               ? 'published'
               : 'ready',
-        reason: state.reason,
+        reason:
+          state.reason ||
+          (!config.githubRepo
+            ? 'No unambiguous GitHub remote was found; the verified candidate remains local.'
+            : ''),
         baseRevision: state.baseRevision,
         revision: round?.revision ?? null,
         rounds: state.round,

@@ -1,13 +1,14 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, vi } from 'vitest';
-import { issueBriefSchema } from '../src/contracts/issue.js';
+import { hostCommand } from '../src/integrations/git/command.js';
 import { brief } from './fixtures/brief.js';
+import { deliveryConfig } from './fixtures/delivery.js';
 
 async function port(): Promise<number> {
   const server = createServer();
@@ -26,8 +27,42 @@ async function port(): Promise<number> {
 
 async function factory(api = 'responses', issue?: string, mode = 'normal') {
   const directory = await mkdtemp(join(tmpdir(), 'darkfactory-cli-'));
+  const source = join(directory, 'source');
+  await mkdir(source);
+  const git = (args: string[]) =>
+    hostCommand(
+      'git',
+      [
+        '-C',
+        source,
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'commit.gpgsign=false',
+        ...args,
+      ],
+      new AbortController().signal,
+    );
+  await git(['init', '-b', 'main']);
+  await git(['config', 'user.name', 'Test']);
+  await git(['config', 'user.email', 'test@example.com']);
+  await writeFile(join(source, 'original.txt'), 'original');
+  await writeFile(
+    join(source, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node check.cjs' } }),
+  );
+  await git(['add', '.']);
+  await git(['commit', '-m', 'initial']);
   const routerPort = await port();
   await writeFile(join(directory, 'result.json'), JSON.stringify(brief));
+  await writeFile(
+    join(directory, 'project-plan.json'),
+    JSON.stringify({
+      allowedPaths: deliveryConfig.allowedPaths,
+      checks: deliveryConfig.checks,
+      targets: [],
+    }),
+  );
   const configPath = join(directory, 'factory.json');
   await writeFile(
     configPath,
@@ -42,7 +77,6 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
           mode,
         ],
       },
-      outputDir: 'issues',
     }),
   );
   const child = spawn(
@@ -55,6 +89,7 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
       ...(issue === undefined ? [] : ['--issue', issue]),
     ],
     {
+      cwd: source,
       env: {
         ...process.env,
         DARKFACTORY_API_KEY: 'test-key',
@@ -77,6 +112,7 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
   return {
     child,
     directory,
+    source,
     exit,
     stdout: () => stdout,
     stderr: () => stderr,
@@ -96,7 +132,7 @@ async function factory(api = 'responses', issue?: string, mode = 'normal') {
 }
 
 test.each(['chat', 'responses'])(
-  'compiled terminal flow: managed router → real Mastra ask → piped answers → JSON (%s API)',
+  'compiled default flow inspects the current repository but makes no changes when implementation is declined (%s API)',
   async (api) => {
     const run = await factory(
       api,
@@ -104,19 +140,14 @@ test.each(['chat', 'responses'])(
     );
     try {
       run.child.stdin.end(
-        api === 'chat' ? 'CSV\n' : 'Export filtered issues\n1\n',
+        api === 'chat' ? 'CSV\nStop\n' : 'Export filtered issues\n1\nStop\n',
       );
-      expect(await run.exit, run.stderr()).toEqual([0, null]);
-      expect(issueBriefSchema.parse(JSON.parse(run.stdout()))).toEqual(brief);
-      const files = await readdir(join(run.directory, 'issues'));
-      expect(files).toHaveLength(1);
-      expect(
-        JSON.parse(
-          await readFile(join(run.directory, 'issues', files[0] ?? ''), 'utf8'),
-        ),
-      ).toEqual(brief);
+      expect(await run.exit, run.stderr()).toEqual([1, null]);
+      expect(run.stdout()).toBe('');
       expect(run.stderr()).toContain('Which export format?');
-      expect(run.stderr()).toContain('Saved');
+      expect(run.stderr()).toContain('Inspecting repository');
+      expect(run.stderr()).toContain('Implement this brief?');
+      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
       expect(run.stdout()).not.toContain('test-key');
       expect(run.stderr()).not.toContain('test-key');
       await run.assertStopped();
@@ -127,14 +158,14 @@ test.each(['chat', 'responses'])(
   20_000,
 );
 
-test('EOF fails without inventing an answer or saving a brief', async () => {
+test('EOF fails without inventing an answer or preparing a repository', async () => {
   const run = await factory('responses', 'Export issues');
   try {
     run.child.stdin.end();
     expect(await run.exit).toEqual([1, null]);
     expect(run.stdout()).toBe('');
-    expect(run.stderr()).toContain('Input ended before exploration finished');
-    await expect(readdir(join(run.directory, 'issues'))).rejects.toThrow();
+    expect(run.stderr()).toContain('Input ended before the workflow finished');
+    await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
     await run.assertStopped();
   } finally {
     await run.clean();
@@ -153,18 +184,23 @@ test('unexpected router exit aborts a pending issue prompt', async () => {
   }
 }, 20_000);
 
-test.each([false, true])(
-  'cancellation stops the router and pending terminal input (during agent question: %s)',
-  async (duringQuestion) => {
+test.each(['issue', 'exploration', 'implementation'])(
+  'cancellation stops the router and pending terminal input during %s',
+  async (stage) => {
     const run = await factory(
       'responses',
-      duringQuestion ? 'Export issues' : undefined,
+      stage === 'issue' ? undefined : 'Export issues',
     );
     try {
+      if (stage === 'implementation') run.child.stdin.write('CSV\n');
       await vi.waitFor(
         () => {
           expect(run.stderr()).toContain(
-            duringQuestion ? 'Which export format?' : 'Issue\n',
+            stage === 'issue'
+              ? 'Issue\n'
+              : stage === 'exploration'
+                ? 'Which export format?'
+                : 'Implement this brief?',
           );
         },
         { timeout: 10_000 },
@@ -172,7 +208,7 @@ test.each([false, true])(
       run.child.kill('SIGINT');
       expect(await run.exit, run.stderr()).toEqual([130, null]);
       expect(run.stdout()).toBe('');
-      await expect(readdir(join(run.directory, 'issues'))).rejects.toThrow();
+      await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
       await run.assertStopped();
     } finally {
       await run.clean();

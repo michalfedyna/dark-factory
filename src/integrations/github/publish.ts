@@ -1,6 +1,6 @@
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { DeliveryConfig } from '../../config/delivery.js';
+import type { Project } from '../../contracts/project.js';
 import type { DeliveryState, Evidence } from '../../contracts/delivery.js';
 import type { RunRepository } from '../git/repository.js';
 import { hostCommand } from '../git/command.js';
@@ -27,7 +27,7 @@ export function renderPullRequest(
 }
 
 export async function publishPullRequest(options: {
-  config: DeliveryConfig;
+  config: Pick<Project, 'githubRepo' | 'baseBranch'>;
   repository: RunRepository;
   state: DeliveryState;
   runId: string;
@@ -35,6 +35,8 @@ export async function publishPullRequest(options: {
   signal: AbortSignal;
 }): Promise<string> {
   const { config, repository, state, runId, directory, signal } = options;
+  if (!config.githubRepo)
+    throw new Error('A GitHub remote is required for publication.');
   const round = state.history.at(-1)!;
   if (
     state.status !== 'approved' ||

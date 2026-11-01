@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { LocalSandbox } from '@mastra/core/workspace';
 import { z } from 'zod';
-import type { DeliveryConfig } from '../config/delivery.js';
+import type { Project } from '../contracts/project.js';
 import {
   validateScreenshot,
   type EvidenceRecorder,
@@ -50,7 +50,7 @@ export const qaCommandSchema = z.strictObject({
 });
 
 export interface QaToolOptions {
-  config: DeliveryConfig;
+  config: Project;
   sandbox: LocalSandbox;
   evidence: EvidenceRecorder;
   session: string;

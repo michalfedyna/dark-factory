@@ -7,7 +7,9 @@ import {
   mkdir,
   readFile,
   readdir,
+  realpath,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -41,7 +43,7 @@ test.each([
   ['responses', 'delivery-qa-repair', 2],
   ['chat', 'delivery-review-repair', 2],
 ] as const)(
-  'compiled workflow: four agents, real workspaces, stub UI tools and optional repair (%s, %s)',
+  'compiled default workflow: exploration through delivery with real workspaces and optional repair (%s, %s)',
   async (api, mode, rounds) => {
     const directory = await mkdtemp(
       join(tmpdir(), 'darkfactory-delivery-e2e-'),
@@ -68,7 +70,25 @@ test.each([
       await git(['init', '-b', 'main']);
       await git(['config', 'user.name', 'Test']);
       await git(['config', 'user.email', 'test@example.com']);
+      await git([
+        'remote',
+        'add',
+        'origin',
+        'https://github.com/example/project.git',
+      ]);
       await writeFile(join(source, 'original.txt'), 'original');
+      await writeFile(
+        join(source, 'package.json'),
+        JSON.stringify({
+          name: 'test-project',
+          scripts: {
+            test: 'node check.cjs',
+            dev: 'node server.cjs',
+            'prepare:ios': 'node install.cjs',
+          },
+        }),
+      );
+      await mkdir(join(source, 'nested'));
       await git(['add', '.']);
       await git(['commit', '-m', 'initial']);
       const base = (await git(['rev-parse', 'HEAD'])).trim();
@@ -79,6 +99,10 @@ test.each([
         automation,
       );
       await chmod(automation, 0o700);
+      const bin = join(directory, 'bin');
+      await mkdir(bin);
+      await symlink(automation, join(bin, 'agent-browser'));
+      await symlink(automation, join(bin, 'agent-device'));
       const port = await availablePort();
       const resultPath = join(directory, 'brief.json');
       await writeFile(resultPath, JSON.stringify(brief));
@@ -96,43 +120,44 @@ test.each([
               mode,
             ],
           },
-          delivery: {
-            ...deliveryConfig,
-            checks: [
-              {
-                id: 'test',
+        }),
+      );
+      await writeFile(
+        join(directory, 'project-plan.json'),
+        JSON.stringify({
+          allowedPaths: deliveryConfig.allowedPaths,
+          allowNetwork: true,
+          checks: [
+            {
+              id: 'test',
+              command: process.execPath,
+              args: [
+                '-e',
+                "if (!require('node:fs').readFileSync('feature.txt', 'utf8').startsWith('implemented')) process.exit(1)",
+              ],
+            },
+          ],
+          targets: [
+            {
+              id: 'web',
+              kind: 'web',
+              url: 'http://localhost:3000',
+              start: {
                 command: process.execPath,
-                args: [
-                  '-e',
-                  "if (!require('node:fs').readFileSync('feature.txt', 'utf8').startsWith('implemented')) process.exit(1)",
-                ],
+                args: ['-e', 'setInterval(() => {}, 1000)'],
               },
-            ],
-            repository: source,
-            browserCommand: automation,
-            deviceCommand: automation,
-            targets: [
-              {
-                id: 'web',
-                kind: 'web',
-                url: 'http://localhost:3000',
-                start: {
-                  command: process.execPath,
-                  args: ['-e', 'setInterval(() => {}, 1000)'],
-                },
+            },
+            {
+              id: 'ios',
+              kind: 'mobile',
+              platform: 'ios',
+              app: 'com.example.app',
+              prepare: {
+                command: process.execPath,
+                args: ['-e', 'process.exit(0)'],
               },
-              {
-                id: 'ios',
-                kind: 'mobile',
-                platform: 'ios',
-                app: 'com.example.app',
-                prepare: {
-                  command: process.execPath,
-                  args: ['-e', 'process.exit(0)'],
-                },
-              },
-            ],
-          },
+            },
+          ],
         }),
       );
       child = spawn(
@@ -144,11 +169,12 @@ test.each([
           configPath,
           '--issue',
           'Export filtered issues',
-          '--deliver',
         ],
         {
+          cwd: join(source, 'nested'),
           env: {
             ...process.env,
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
             DARKFACTORY_API_KEY: 'test-key',
             MASTRA_AUTO_REFRESH_PROVIDERS: 'false',
             NO_COLOR: '1',
@@ -172,6 +198,21 @@ test.each([
       expect(result.status).toBe('ready');
       expect(result.rounds).toBe(rounds);
       expect(result.pullRequestUrl).toBeNull();
+      const input = JSON.parse(
+        await readFile(join(result.runDirectory, 'input.json'), 'utf8'),
+      ) as {
+        config: { repository: string; baseBranch: string; githubRepo: string };
+        brief: unknown;
+      };
+      expect(input.config).toMatchObject({
+        repository: await realpath(source),
+        baseBranch: 'main',
+        githubRepo: 'example/project',
+      });
+      expect(input.brief).toEqual(brief);
+      expect(result.runDirectory).toBe(
+        join(await realpath(source), '.darkfactory/runs', result.runId),
+      );
       expect((await git(['rev-parse', 'HEAD'])).trim()).toBe(base);
       expect(await readFile(join(source, 'original.txt'), 'utf8')).toBe(
         'user work',

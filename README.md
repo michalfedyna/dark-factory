@@ -1,7 +1,7 @@
 # DarkFactory
 
-A CLI software factory. Explore an issue into a validated brief, or opt into
-implementation, web/native QA, independent review, and a draft GitHub PR.
+A CLI software factory. The `default` workflow takes an issue through exploration,
+implementation, web/native QA, independent review, and an approved draft GitHub PR.
 
 The CLI is the only interface. There is no web app or local UI server.
 
@@ -12,8 +12,10 @@ The CLI is the only interface. There is no web app or local UI server.
 - Upstream credentials with access to `gpt-6.1-sol` (Sol 6.1), or another configured
   model that supports tool calls
 
-Opt-in delivery also needs Git, authenticated GitHub CLI, and the browser/device
-tools applicable to the target project. See [delivery setup](docs/delivery.md).
+Run inside a trusted Git repository on a local branch with a commit. Project
+commands require Seatbelt on macOS or Bubblewrap on Linux. Publication also needs
+an authenticated GitHub CLI; UI QA needs the applicable browser/device tools.
+See [workflow setup](docs/delivery.md).
 
 ## Setup
 
@@ -44,6 +46,10 @@ model list is not treated as a permanent failure.
 Do not also run a Homebrew proxy service in managed mode. Stop an existing
 service on the configured port or explicitly set `router.managed` to `false`.
 
+There is no project-specific factory setup. Run the CLI in the repository you
+want to work on, using `--config` to point to your transport configuration if it
+lives elsewhere. The config's location never selects the target repository.
+
 ## Run
 
 ```sh
@@ -60,9 +66,15 @@ You can supply the issue up front:
 npm run dev -- start --issue "Export filtered issues as CSV"
 ```
 
-One invocation explores one issue. When finished, the factory validates the brief,
-saves `.darkfactory/issues/<run-uuid>.json`, prints the JSON to stdout, and stops
-its proxy child. Prompts, progress, diagnostics, and the saved path go to stderr.
+One invocation runs one issue from exploration to delivery. The factory validates
+the brief in memory, inspects the current repository, and infers setup commands,
+checks, change scope, and QA targets from its files. Necessary unknowns become
+terminal questions, not guessed defaults. After implementation approval it
+implements, checks, tests, reviews, and prepares a draft PR. Publication needs a
+separate approval; **Keep local** retains a verified candidate without pushing.
+Stdout contains only the final delivery result JSON, not the intermediate brief.
+Prompts, progress, diagnostics, and artifact paths go to stderr. The proxy child stops
+when the run ends.
 Ctrl+C or Escape cancels without treating silence as approval (exit code 130).
 
 For a built executable:
@@ -71,7 +83,7 @@ For a built executable:
 npm run build
 npm link
 dark start
-dark start --issue "Export filtered issues as CSV" > brief.json
+dark start --issue "Export filtered issues as CSV" > delivery.json
 dark start --config /path/to/factory.config.json
 ```
 
@@ -85,37 +97,44 @@ When stdin is not a terminal, input is line-oriented. The first line is the issu
 unless `--issue` is supplied; each later line answers the next agent question.
 You can enter a displayed choice number (starting at 1) or free text. Input is
 buffered between model calls. Empty lines are rejected; EOF fails the run rather
-than fabricating an answer or approving a brief. Model questions can vary, so do
-not assume a fixed answer script is suitable for every real issue.
+than fabricating an answer or approving a brief, implementation, or publication.
+Model questions can vary, so do not assume a fixed answer script is suitable for
+every real issue.
 
 ## Configuration
 
-### End-to-end delivery
+### Repository discovery
 
-```sh
-cp config/delivery.example.json factory.delivery.json
-# Configure the target repository, allowed paths, checks, and QA targets.
-npm run dev -- start --config factory.delivery.json --deliver --issue "Add CSV export"
-```
+`dark start` always runs the registered `default` workflow:
+exploration → repository inspection → implementation → checks → QA → review → summary → draft PR.
+The target is the Git root containing the CLI's working directory; the current
+local branch supplies the pinned base. GitHub publication uses `origin`, or a
+single unambiguous GitHub remote when origin is absent. Without a usable GitHub
+remote, verified work stays local.
 
-`--deliver` adds implementation → checks → QA → review → summary → draft PR.
+The inspection agent reads manifests, lockfiles, CI, instructions, and source with
+a read-only Mastra filesystem. It proposes actual repository commands and targets
+for approval; it cannot execute code or change files. No delivery config is needed.
 QA uses **agent-browser** for web and **agent-device** for native iOS/Android.
 QA/review findings can return to implementation within a shared repair budget;
 new candidates always get fresh verification. Implementation and GitHub publication
 require separate explicit terminal approvals. Choose **Keep local** to stop before
-push/PR creation. Delivery stdout is one final result JSON; briefs and run evidence
-are saved privately on disk. Existing exploration-only behavior is unchanged.
+push/PR creation. Stdout is one final result JSON. Evidence and retained checkouts
+live under the target repository's `.darkfactory/runs/<run-id>/`; there is no
+separate issue-file output or save step. One timeout covers the entire workflow,
+and checks, QA, and review share a fixed three-repair budget.
 
 This first provider is for **trusted local repositories**, not hostile code.
-See [delivery setup, configuration, evidence, and limitations](docs/delivery.md).
+See [workflow setup, evidence, and limitations](docs/delivery.md).
 
 ### General settings
 
 `factory.config.json` is validated by
 [`src/config/schema.ts`](src/config/schema.ts). Unknown fields are rejected.
-**The old `ui` section is no longer supported; remove it from custom configs.**
+Only model, router, and workflow timeout settings belong here. Remove the old
+`ui`, `delivery`, and `outputDir` fields from custom configs.
 
-`.env`, router arguments, and output paths are relative to the config directory.
+`.env` and router arguments are relative to the config directory.
 The executable is resolved through `PATH` or an absolute path. Arguments are
 passed directly, without a shell.
 
@@ -130,8 +149,7 @@ passed directly, without a shell.
 | `router.command`        | `cliproxyapi`                       | Proxy executable.                                                      |
 | `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                       |
 | `router.readyTimeoutMs` | `20000`                             | Proxy/model startup deadline.                                          |
-| `outputDir`             | `.darkfactory/issues`               | Validated JSON output directory.                                       |
-| `sessionTimeoutMs`      | `1800000`                           | Exploration deadline, including time waiting for answers (30 minutes). |
+| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including approvals and repairs (30 minutes). |
 
 For an existing/remote endpoint, set `router.managed: false` and configure the
 model URL, protocol, and key. Managed URLs must be loopback addresses. The factory
@@ -148,26 +166,24 @@ open questions, and readiness. See [the output contract](docs/issue-brief.md).
 
 The agent asks for confirmation before completion. Zod rejects `ready` briefs
 without confirmation or with open questions, empty requirements/acceptance
-criteria, duplicate IDs, and unknown fields. Invalid results are not saved.
+criteria, duplicate IDs, and unknown fields. Invalid briefs cannot advance.
 
 Cancellation, timeout, input errors, and validation failures stop the run. Active
-conversations are not durable across restarts; saved briefs remain on disk. Keep
-`.darkfactory/` private because briefs may contain sensitive information.
+conversations are not durable across restarts. The brief stays in memory until
+approved run artifacts record the workflow inputs and state. There are no separate
+issue files. Keep `.darkfactory/` private because artifacts may contain sensitive
+information.
 
 ## Mastra workflows
 
-Exploration runs as a registered Mastra workflow, not a custom session runtime.
-Its `explore-issue` step runs the agent and validates the brief; `save-brief`
-persists it using Mastra's run ID. The CLI starts and cancels native workflow runs.
-`sessionTimeoutMs` remains the configuration key for the exploration deadline.
+`src/workflows/default.ts` defines the single registered `default` workflow in
+`src/factory/start.ts`. Its `explore-issue` step validates the brief and passes it
+directly to preparation. The CLI starts and cancels one native workflow run.
 
-Task-specific workflow definitions live in `src/workflows/` and are registered in
-`src/factory/start.ts`. Future tasks can use different workflows rather than one
-fixed sequence. Prefer Mastra features over custom infrastructure.
-
-Opt-in delivery is another registered workflow with a nested Mastra repair loop.
-Implementation uses a per-run workspace and sandbox; QA/review get read-only
-source access, and trusted runners capture revision-bound evidence. See
+Delivery uses a nested Mastra repair loop, not a second top-level run.
+`sessionTimeoutMs` bounds the whole run, including both approval waits. Implementation uses a
+per-run workspace and sandbox; QA/review get read-only source access, and trusted
+runners capture revision-bound evidence. See
 [architecture](docs/architecture.md) and [delivery](docs/delivery.md).
 
 ## Structure
@@ -176,12 +192,12 @@ source access, and trusted runners capture revision-bound evidence. See
 config/                 Proxy template; local config is gitignored
 src/
   agents/               Mastra agents and their instructions
-  workflows/            Task-specific Mastra workflows and typed steps
+  workflows/            Default end-to-end Mastra workflow and typed steps
   tools/                Agent tools, starting with ask
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
   integrations/router/  Proxy process lifecycle and readiness
-  factory/              Mastra registration, CLI run lifecycle, and output persistence
+  factory/              Mastra registration, CLI run lifecycle, and run artifacts
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests
 docs/                   Architecture and output contract
@@ -209,7 +225,8 @@ See [architecture](docs/architecture.md) for the flow and extension points.
 
 Tests need no upstream credentials. Integration tests start a child test endpoint,
 run the actual Mastra agent/tool loop through both OpenAI protocols, answer through
-stdin, validate stdout and saved JSON, and verify cancellation/EOF cleanup.
+stdin, infer repository settings, validate final JSON and evidence, and verify
+cancellation/EOF cleanup.
 
 `npm pack` builds before packaging. Postinstall installs Lefthook when `.git` and
 Lefthook are present. **pre-commit** runs `npm run check`; **commit-msg** requires

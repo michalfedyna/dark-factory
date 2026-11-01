@@ -1,16 +1,20 @@
 import { RequestContext } from '@mastra/core/request-context';
-import type { IssueBrief } from '../contracts/issue.js';
+import { issueInputSchema, type Ask } from '../contracts/interaction.js';
 import type {
-  createDeliveryWorkflow,
+  createDefaultWorkflow,
   DeliveryOperations,
-} from '../workflows/delivery.js';
+} from '../workflows/default.js';
 
-const deliveryError =
-  'Delivery failed. Check the saved run artifacts, approved scope, QA prerequisites, and model access. No failed gate authorizes publication.';
+const explorationError =
+  'Exploration failed or returned an invalid brief. Check router authentication/model access and try again.';
+const workflowError =
+  'Workflow failed. Check repository access, QA prerequisites, model access, and any run artifacts. No failed gate authorizes publication.';
 
-export async function runDelivery(options: {
-  brief: IssueBrief;
-  workflow: ReturnType<typeof createDeliveryWorkflow>;
+export async function runDefault(options: {
+  issue: unknown;
+  ask: Ask;
+  progress: (message: string) => void;
+  workflow: ReturnType<typeof createDefaultWorkflow>;
   runtime: (
     runId: string,
     signal: AbortSignal,
@@ -18,52 +22,63 @@ export async function runDelivery(options: {
   signal: AbortSignal;
   timeoutMs: number;
 }) {
+  const issue = issueInputSchema.parse(options.issue);
   options.signal.throwIfAborted();
   const run = await options.workflow.createRun();
   const deadline = new AbortController();
   const timer = setTimeout(() => {
-    deadline.abort(new Error('Delivery timed out.'));
+    deadline.abort(new Error('Workflow timed out.'));
   }, options.timeoutMs);
   const signal = AbortSignal.any([options.signal, deadline.signal]);
-  const runtime = options.runtime(run.runId, signal);
+  let runtime: ReturnType<typeof options.runtime> | undefined;
   let abort = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {
     abort = () => {
       reject(
         signal.reason instanceof Error
           ? signal.reason
-          : new Error('Delivery cancelled.'),
+          : new Error('Workflow cancelled.'),
       );
     };
     signal.addEventListener('abort', abort, { once: true });
   });
   try {
     signal.throwIfAborted();
+    runtime = options.runtime(run.runId, signal);
     const result = await Promise.race([
       run
         .start({
-          inputData: { brief: options.brief },
+          inputData: { issue },
           requestContext: new RequestContext([
+            ['ask', options.ask],
+            ['progress', options.progress],
             ['operations', runtime.operations],
             ['signal', signal],
           ]),
         })
         .catch((error: unknown) => {
-          throw new Error(deliveryError, { cause: error });
+          throw new Error(workflowError, { cause: error });
         }),
       aborted,
     ]);
     signal.throwIfAborted();
     if (result.status !== 'success') {
-      throw new Error(deliveryError);
+      throw new Error(
+        result.steps['explore-issue']?.status === 'failed'
+          ? explorationError
+          : workflowError,
+      );
     }
     return result.result;
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', abort);
     const cancelled = signal.aborted;
-    deadline.abort(new Error('Delivery ended.'));
-    if (cancelled) await run.cancel();
-    await runtime.close();
+    deadline.abort(new Error('Workflow ended.'));
+    try {
+      if (cancelled) await run.cancel();
+    } finally {
+      await runtime?.close();
+    }
   }
 }

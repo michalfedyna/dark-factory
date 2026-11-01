@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { setTimeout } from 'node:timers';
 
 const [port, resultPath, mode = 'normal'] = process.argv.slice(2);
@@ -56,9 +57,11 @@ const server = createServer((request, response) => {
       options: ['CSV', 'JSON'],
     };
     const savedOutput = resultPath ? readFileSync(resultPath, 'utf8') : '{}';
-    const delivery = mode.startsWith('delivery')
-      ? deliveryReply(input, savedOutput, mode)
-      : undefined;
+    const delivery =
+      mode.startsWith('delivery') ||
+      JSON.stringify(input).includes('You inspect the current repository')
+        ? deliveryReply(input, savedOutput, mode)
+        : undefined;
     const output = delivery?.result
       ? JSON.stringify(delivery.result)
       : savedOutput;
@@ -148,6 +151,22 @@ function deliveryReply(input, savedOutput, mode) {
   const tools = input.messages
     ? input.messages.filter((message) => message.role === 'tool').length
     : input.input.filter((item) => item.type === 'function_call_output').length;
+  if (serialized.includes('You inspect the current repository'))
+    return tools === 0
+      ? {
+          tool: {
+            name: 'mastra_workspace_read_file',
+            args: { path: 'package.json' },
+          },
+        }
+      : {
+          result: JSON.parse(
+            readFileSync(
+              join(dirname(resultPath), 'project-plan.json'),
+              'utf8',
+            ),
+          ),
+        };
   if (serialized.includes('You own implementation')) {
     return tools === 0
       ? {

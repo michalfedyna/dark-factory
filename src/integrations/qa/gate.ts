@@ -1,11 +1,11 @@
-import type { DeliveryConfig } from '../../config/delivery.js';
+import type { Project } from '../../contracts/project.js';
 import type { DeliveryRound, Finding } from '../../contracts/delivery.js';
 import type { IssueBrief } from '../../contracts/issue.js';
 
 export function validateQa(
   brief: IssueBrief,
   round: DeliveryRound,
-  targets: DeliveryConfig['targets'],
+  targets: Project['targets'],
 ): DeliveryRound {
   const report = round.qa;
   if (!report) throw new Error('Missing QA report.');

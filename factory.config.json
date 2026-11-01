@@ -12,6 +12,5 @@
     "args": ["-config", "config/router.yaml"],
     "readyTimeoutMs": 20000
   },
-  "outputDir": ".darkfactory/issues",
   "sessionTimeoutMs": 1800000
 }

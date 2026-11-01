@@ -52,7 +52,7 @@ export function createTerminal(options: {
     signal.throwIfAborted();
     if (result.done)
       throw new Error(
-        'Input ended before exploration finished. Provide an answer for every question or run in an interactive terminal.',
+        'Input ended before the workflow finished. Provide an answer for every question or run in an interactive terminal.',
       );
     return result.value;
   };

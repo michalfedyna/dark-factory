@@ -12,14 +12,8 @@ const targetOptions = {
   screenshots: z.boolean().default(true),
 };
 
-export const deliveryConfigSchema = z
+export const projectPlanSchema = z
   .strictObject({
-    repository: z.string().trim().min(1),
-    baseBranch: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/),
-    githubRepo: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
-    // Local execution must be a deliberate choice, not an implicit default.
-    trustedLocalExecution: z.literal(true),
-    isolation: z.enum(['native', 'none']).default('native'),
     allowNetwork: z.boolean().default(false),
     allowedPaths: z
       .array(
@@ -60,11 +54,6 @@ export const deliveryConfigSchema = z
         ]),
       )
       .default([]),
-    browserCommand: z.string().trim().min(1).default('agent-browser'),
-    deviceCommand: z.string().trim().min(1).default('agent-device'),
-    maxRepairRounds: z.number().int().min(0).max(10).default(3),
-    timeoutMs: z.number().int().min(1_000).max(86_400_000).default(3_600_000),
-    runsDir: z.string().trim().min(1).default('.darkfactory/runs'),
   })
   .superRefine((config, context) => {
     for (const field of ['checks', 'targets'] as const) {
@@ -78,4 +67,16 @@ export const deliveryConfigSchema = z
     }
   });
 
-export type DeliveryConfig = z.infer<typeof deliveryConfigSchema>;
+export const projectSchema = projectPlanSchema.safeExtend({
+  repository: z.string().trim().min(1),
+  baseBranch: z.string().trim().min(1),
+  baseRevision: z.string().trim().min(1),
+  githubRepo: z
+    .string()
+    .regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/)
+    .nullable(),
+  browserCommand: z.string().trim().min(1).default('agent-browser'),
+  deviceCommand: z.string().trim().min(1).default('agent-device'),
+});
+
+export type Project = z.infer<typeof projectSchema>;

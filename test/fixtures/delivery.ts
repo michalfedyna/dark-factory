@@ -1,11 +1,10 @@
-import { deliveryConfigSchema } from '../../src/config/delivery.js';
+import { projectSchema } from '../../src/contracts/project.js';
 
-export const deliveryConfig = deliveryConfigSchema.parse({
+export const deliveryConfig = projectSchema.parse({
   repository: '.',
   baseBranch: 'main',
   githubRepo: 'example/project',
-  trustedLocalExecution: true,
-  isolation: 'none',
+  baseRevision: 'base',
   allowedPaths: ['feature.txt'],
   checks: [
     {

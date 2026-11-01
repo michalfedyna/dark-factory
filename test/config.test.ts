@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { factoryConfigSchema } from '../src/config/schema.js';
 import { loadConfig } from '../src/config/load.js';
-import { deliveryConfig } from './fixtures/delivery.js';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -40,38 +39,6 @@ describe('factory configuration', () => {
         model: { baseUrl: 'https://example.com/v1' },
       }).success,
     ).toBe(true);
-  });
-  test('delivery is opt-in and validates an explicit trusted local policy', () => {
-    expect(factoryConfigSchema.parse({}).delivery).toBeUndefined();
-    expect(
-      factoryConfigSchema.parse({ delivery: deliveryConfig }).delivery,
-    ).toEqual(deliveryConfig);
-  });
-  test.each([
-    { trustedLocalExecution: false },
-    { trustedLocalExecution: undefined },
-    { checks: [] },
-    { allowedPaths: [] },
-    { allowedPaths: ['../source'] },
-    { allowedPaths: ['/source'] },
-    { allowedPaths: ['.git'] },
-    { allowedPaths: ['.darkfactory/policy'] },
-    { maxRepairRounds: -1 },
-    { maxRepairRounds: 11 },
-    { checks: [deliveryConfig.checks[0], deliveryConfig.checks[0]] },
-    { targets: [{ id: 'web', kind: 'web', url: 'http://localhost:3000' }] },
-    {
-      targets: [
-        { id: 'ios', kind: 'mobile', platform: 'ios', app: 'com.example.app' },
-      ],
-    },
-    { githubRepo: 'https://github.com/example/project' },
-  ])('rejects unsafe/incomplete delivery configuration %j', (overrides) => {
-    expect(
-      factoryConfigSchema.safeParse({
-        delivery: { ...deliveryConfig, ...overrides },
-      }).success,
-    ).toBe(false);
   });
   test('loads relative paths from the config directory and explains validation errors', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'darkfactory-config-'));

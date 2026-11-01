@@ -1,5 +1,12 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
+import type { Explore } from '../agents/exploration.js';
+import {
+  answerSchema,
+  issueInputSchema,
+  questionSchema,
+  type Ask,
+} from '../contracts/interaction.js';
 import {
   deliveryResultSchema,
   deliveryStateSchema,
@@ -34,18 +41,61 @@ export interface DeliveryOperations {
   record: (state: DeliveryState) => Promise<void>;
 }
 
-const inputSchema = z.strictObject({ brief: issueBriefSchema });
+const inputSchema = z.strictObject({ issue: issueInputSchema });
 const requestContextSchema = z.object({
+  ask: z.custom<Ask>((value) => typeof value === 'function'),
+  progress: z.custom<(message: string) => void>(
+    (value) => typeof value === 'function',
+  ),
   operations: z.custom<DeliveryOperations>(
     (value) => typeof value === 'object' && value !== null,
   ),
   signal: z.instanceof(AbortSignal),
 });
 
-export function createDeliveryWorkflow() {
+export function createDefaultWorkflow(dependencies: { explore: Explore }) {
+  const exploreIssue = createStep({
+    id: 'explore-issue',
+    inputSchema,
+    outputSchema: issueBriefSchema,
+    requestContextSchema,
+    execute: async ({ inputData, requestContext, abortSignal }) => {
+      const exploration = new AbortController();
+      const signal = AbortSignal.any([
+        abortSignal,
+        requestContext.get('signal'),
+        exploration.signal,
+      ]);
+      signal.throwIfAborted();
+      requestContext.get('progress')('Exploring');
+      let asking = false;
+      const ask: Ask = async (question) => {
+        signal.throwIfAborted();
+        if (asking) throw new Error('Ask one question at a time.');
+        asking = true;
+        try {
+          const answer = await requestContext.get('ask')(
+            questionSchema.parse(question),
+            signal,
+          );
+          signal.throwIfAborted();
+          return answerSchema.parse(answer);
+        } finally {
+          asking = false;
+        }
+      };
+      try {
+        const brief = await dependencies.explore(inputData.issue, ask, signal);
+        signal.throwIfAborted();
+        return issueBriefSchema.parse(brief);
+      } finally {
+        exploration.abort(new Error('Exploration ended.'));
+      }
+    },
+  });
   const prepare = createStep({
     id: 'prepare-delivery',
-    inputSchema,
+    inputSchema: issueBriefSchema,
     outputSchema: deliveryStateSchema,
     requestContextSchema,
     execute: async ({ inputData, requestContext, abortSignal }) => {
@@ -54,17 +104,15 @@ export function createDeliveryWorkflow() {
         requestContext.get('signal'),
       ]);
       signal.throwIfAborted();
-      if (
-        inputData.brief.readiness !== 'ready' ||
-        !inputData.brief.confirmedByUser
-      )
+      requestContext.get('progress')('Preparing delivery');
+      if (inputData.readiness !== 'ready' || !inputData.confirmedByUser)
         throw new Error('Delivery requires a confirmed, ready brief.');
       const baseRevision = await requestContext
         .get('operations')
-        .prepare(inputData.brief, signal);
+        .prepare(inputData, signal);
       signal.throwIfAborted();
       return {
-        brief: inputData.brief,
+        brief: inputData,
         baseRevision,
         round: 0,
         status: 'repair' as const,
@@ -272,13 +320,14 @@ export function createDeliveryWorkflow() {
     metadata: {},
   });
   return createWorkflow({
-    id: 'issue-delivery',
+    id: 'default',
     inputSchema,
     outputSchema: deliveryResultSchema,
     requestContextSchema,
     retryConfig: { attempts: 0 },
     options: { validateInputs: true, autoRestartActiveRuns: false },
   })
+    .then(exploreIssue)
     .then(prepare)
     .dountil(loop, ({ inputData }) =>
       Promise.resolve(deliveryStateSchema.parse(inputData).status !== 'repair'),

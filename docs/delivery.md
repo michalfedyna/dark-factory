@@ -1,127 +1,91 @@
-# Initial end-to-end delivery
+# Default end-to-end workflow
 
 ```text
-explore → confirm brief → approve implementation
-  → implement → snapshot → configured checks → QA → independent review
+explore → confirm brief → inspect repository → approve implementation
+  → implement → snapshot → inferred checks → QA → independent review
       ↑                                      │             │
       └──────── bounded in-scope repairs ──────┴─────────────┘
   → summary → approve publication → push branch → draft GitHub PR
 ```
 
-`dark start` still only explores an issue. Use `dark start --deliver` to continue
-through a separate registered Mastra delivery workflow. Stdout contains one final
-validated delivery JSON object instead of the brief. The brief is still saved.
-Prompts and progress remain on stderr.
+`dark start` runs the single registered Mastra workflow named `default`, from
+exploration through delivery. Stdout contains one final validated delivery JSON
+object, not intermediate step outputs. The brief stays in memory until it becomes
+part of approved run artifacts; there is no separate issue-file output or save
+step. Prompts and progress remain on stderr.
 
 ## Setup
 
-1. Use a **trusted** local Git repository and a local base branch. Commit the
-   intended starting code and update that branch yourself before starting. The
-   factory pins its local commit, not a moving remote branch. Uncommitted and
-   untracked user work is not copied or edited. Publication checks that the GitHub
-   base branch still matches the approved local commit; drift requires a new run.
+1. Run inside the **trusted** Git repository you want to change, on a local branch
+   with a commit. Subdirectories are supported. The current branch supplies the
+   base, pinned at startup; detached checkouts are rejected rather than guessed.
+   Commit intended starting code before running. Uncommitted and untracked user
+   work is not copied into the implementation checkout or edited.
 2. Install Git and the GitHub CLI. Authenticate `gh auth login` and configure Git
    HTTPS authentication, for example `gh auth setup-git`. The account needs push
-   and PR permissions on the configured repository. The initial version publishes
+   and PR permissions on the inferred repository. The initial version publishes
    to the same GitHub repository, not a fork.
 3. For web QA, install `agent-browser` and run `agent-browser install`. For native
    QA, install `agent-device`, run `agent-device doctor`, and prepare Xcode/iOS
    Simulator or Android SDK/emulators. Use test accounts and disposable app data.
    These CLIs are optional host prerequisites, not factory browser/UI dependencies.
-4. Copy and edit the example. It uses Vite-style server arguments; replace commands
-   and paths with your project's actual commands. Keep this config outside agent
-   ownership. Paths resolve from the config file's directory.
+4. Install the native sandbox backend: Seatbelt on macOS or Bubblewrap on Linux.
+   Project execution fails closed when native isolation is unavailable. Configure
+   only the factory's model/router transport, using an external config path if needed.
 
 ```sh
-cp config/delivery.example.json factory.delivery.json
-# Edit repository, githubRepo, allowedPaths, commands, and targets first.
-npm run dev -- start --config factory.delivery.json --deliver --issue "Add CSV export"
+cd /path/to/your-app
+dark start --config /path/to/DarkFactory/factory.config.json --issue "Add CSV export"
 ```
 
-The example omits `model` and `router`, so their existing defaults apply. Merge
-your custom transport settings if needed. `.env` is loaded alongside this config.
-For built CLI use `dark start --config factory.delivery.json --deliver`.
+The config path selects transport settings, not the target repository. `.env` and
+router arguments still resolve alongside that config. There is no `delivery`
+section, project-path option, or separate delivery config file.
 
-The **Implement** decision authorizes the displayed brief, pinned base, configured
+The **Implement** decision authorizes the displayed brief, pinned base, inferred
 source scope, commands, targets, and repair budget. Any other answer stops before
 repository preparation. Later, **Publish** authorizes the displayed summary,
 candidate, branch, verification manifest, and captured screenshots. **Keep local**
 returns `ready` without Git push or GitHub operations. EOF/cancellation never
 approves either action.
 
-## Configuration
+## Repository discovery
 
-Add an optional `delivery` section to the existing factory configuration. Unknown
-fields are rejected. [`src/config/delivery.ts`](../src/config/delivery.ts) is the
-authoritative schema.
+Git metadata supplies the root, current branch, and immutable base revision. The
+GitHub target comes from `origin`; if origin is absent, only a single unambiguous
+GitHub repository among the remotes is usable. SSH and HTTPS GitHub URLs are
+supported. Missing, unsupported, or ambiguous GitHub remotes keep a verified
+candidate local instead of inventing a publication target. Publication verifies
+that the remote base still matches the pinned local commit.
 
-| Field                              | Default / requirement                                                                                                                                                               |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository`                       | Required local Git repository path.                                                                                                                                                 |
-| `baseBranch`                       | Required local branch, also used as the GitHub PR base.                                                                                                                             |
-| `githubRepo`                       | Required `owner/repository` on github.com.                                                                                                                                          |
-| `trustedLocalExecution`            | Must explicitly be `true`.                                                                                                                                                          |
-| `allowedPaths`                     | Required nonempty list of relative files/directories; `.` allows all nonprotected paths. Changes outside this scope block the run.                                                  |
-| `isolation`                        | `native`: require Mastra's detected Seatbelt/Bubblewrap backend. `none` explicitly opts into direct host execution.                                                                 |
-| `allowNetwork`                     | `false` for native project sandboxes. Enable for dependency downloads or required services. Not an egress policy for browser/device host automation; it has its own network access. |
-| `setup`                            | `[]`: dependency/bootstrap commands, run once before implementation.                                                                                                                |
-| `checks`                           | Required nonempty list of commands with unique `id`s, run on every candidate.                                                                                                       |
-| `targets`                          | `[]`: no UI QA for backend/CLI-only work. Every configured UI target is required.                                                                                                   |
-| `browserCommand` / `deviceCommand` | `agent-browser` / `agent-device`; executable name on PATH or absolute path.                                                                                                         |
-| `maxRepairRounds`                  | `3`: initial implementation plus at most three repairs, shared by checks, QA, and review.                                                                                           |
-| `timeoutMs`                        | `3600000`: total delivery deadline, including approval waits. Exploration keeps its separate `sessionTimeoutMs`.                                                                    |
-| `runsDir`                          | `.darkfactory/runs`: private run artifacts and retained checkouts.                                                                                                                  |
+A read-only Mastra inspection agent reads repository instructions, manifests,
+lockfiles, CI definitions, and relevant source to infer:
 
-Each command is `{ "command": "npm", "args": ["run", "build"], "timeoutMs": 120000 }`.
-`args` defaults to `[]`; `timeoutMs` defaults to two minutes. Programmatic commands
-use Mastra sandboxes; server argv is shell-quoted before Mastra process spawning.
-No host API key or GitHub credential environment is passed to project commands.
+- Package manager and dependency/setup commands.
+- Meaningful deterministic checks, with at least one required check.
+- Source paths needed for the approved brief.
+- Web servers/URLs or native app identifiers and build/install commands.
+- Whether setup or verification requires network access.
 
-### Web targets
+The plan is validated by [`src/contracts/project.ts`](../src/contracts/project.ts)
+and displayed with the implementation approval. No project code runs during
+inspection. Necessary unknowns become questions; the agent must not invent
+commands or skip required UI verification. It may read working-tree documentation,
+but implementation always starts at the pinned committed base.
 
-```json
-{
-  "id": "web",
-  "kind": "web",
-  "url": "http://127.0.0.1:3000",
-  "start": { "command": "npm", "args": ["run", "dev"] },
-  "screenshots": true
-}
-```
+Web QA uses `agent-browser` from PATH; native iOS/Android QA uses `agent-device`.
+Web servers must use a dedicated strict port. Native preparation must build and
+install each candidate on the selected test device. Required targets get fresh
+open, snapshot, and screenshot evidence each round. Missing tooling or native
+builds incompatible with the sandbox block the workflow, rather than silently
+disabling isolation or substituting an unrelated app/server. Cross-domain web
+login journeys are not supported yet.
 
-`start` is required and runs from the candidate checkout for every QA round. Use
-a dedicated port and a server that **fails** if the port is already in use; don't
-silently test an unrelated existing server. Configure the URL to match that
-server. The controller checks the server has not exited during QA. It doesn't
-prove the server's deployment/source provenance beyond the configured commands.
-QA opens the configured URL, takes accessibility snapshots, tests criteria, and
-captures evidence through `agent-browser`. A separate session is used per
-run/round/target. Navigation is limited to the configured hostname by
-`agent-browser`; cross-domain login journeys aren't supported in this version.
-
-### Native mobile targets
-
-```json
-{
-  "id": "ios",
-  "kind": "mobile",
-  "platform": "ios",
-  "app": "com.example.app",
-  "device": "iPhone 17 Pro",
-  "prepare": { "command": "npm", "args": ["run", "build-and-install:ios"] },
-  "start": { "command": "npm", "args": ["run", "metro"] },
-  "screenshots": true
-}
-```
-
-`platform` is `ios` or `android`. `device` and the background `start` command are
-optional. `prepare` is required and runs on **every** candidate: it must build and
-install that candidate on the selected test device. Its exit status is recorded
-as a required check. Don't point QA at an unrelated previously installed build.
-Native build tools may require explicit `isolation: "none"` on a trusted host.
-QA uses `agent-device`, not browser device emulation. Unavailable apps/devices or
-tooling block delivery. Screenshot capture defaults to `true` for both target
-kinds; turn it off explicitly where screenshots are not appropriate.
+The workflow has one `sessionTimeoutMs` deadline, including exploration, questions,
+approvals, repairs, and publication. The fixed repair budget allows the initial
+implementation plus at most three repairs, shared by checks, QA, and review.
+Commands default to a two-minute deadline and execute through Mastra sandboxes.
+No factory API key or GitHub credential environment is passed to project commands.
 
 ## Gates and repairs
 
@@ -132,7 +96,7 @@ kinds; turn it off explicitly where screenshots are not appropriate.
   Implementers receive check-log excerpts for repairs; QA/review can read current
   evidence and screenshot images through their read-only filesystem provider.
   Web and native tools are defined in separate files and exposed as `agent_browser`
-  and `agent_device` only when the matching target kind is configured. Each accepts
+  and `agent_device` only when the matching target kind is approved. Each accepts
   an operation such as `open`, `snapshot`, or `screenshot` and literal CLI arguments.
 - A trusted Git adapter captures source commits and rejects out-of-scope changes,
   reserved `.git`/`.darkfactory` changes, and `.env` files other than `.env.example`.
@@ -147,11 +111,13 @@ kinds; turn it off explicitly where screenshots are not appropriate.
   repaired candidate. Scope changes, questions, implementation blockers, missing
   infrastructure, exhausted budgets, or repeated source trees stop automation.
 - Agent-authored acceptance assessments and code reviews are still judgments,
-  not mathematical proof. Configure meaningful deterministic checks; the summary
+  not mathematical proof. Review the inferred checks before approval; the summary
   is not a gate and cannot override failed verification.
 
 ## Publication and artifacts
 
+After implementation approval, the workflow creates its private run directory at
+`<git-root>/.darkfactory/runs/<run-id>/`. No separate issue files are created.
 Run directories retain `input.json`, `state.json`, round command records, PNG
 screenshots, a PR preview, the isolated checkout, and `result.json`. They are
 private local artifacts. Git metadata is kept outside the agent's filesystem.

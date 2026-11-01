@@ -142,12 +142,16 @@ test('run repositories do not inherit a Git hook index or repository environment
 test.each(['Stop', 'yes', ''])(
   'only exact implementation approval permits preparation (answer: %j)',
   async (answer) => {
-    const { directory, source } = await setup();
+    const { source, base } = await setup();
     const runtime = createDeliveryRuntime({
-      config: { ...deliveryConfig, repository: source, runsDir: 'deliveries' },
+      inspect: () =>
+        Promise.resolve({
+          ...deliveryConfig,
+          repository: source,
+          baseRevision: base,
+        }),
       model: factoryConfigSchema.parse({}).model,
       apiKey: 'not-for-project-commands',
-      directory,
       runId: 'denied',
       ask: () => Promise.resolve(answer),
       signal,
@@ -158,7 +162,7 @@ test.each(['Stop', 'yes', ''])(
         'not approved',
       );
       await expect(
-        readFile(join(directory, 'deliveries/denied/input.json')),
+        readFile(join(source, '.darkfactory/runs/denied/input.json')),
       ).rejects.toThrow();
     } finally {
       await runtime.close();

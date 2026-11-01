@@ -1,15 +1,10 @@
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import { Mastra } from '@mastra/core/mastra';
-import { RequestContext } from '@mastra/core/request-context';
-import { runExploration } from '../src/factory/explore.js';
-import { createExplorationWorkflow } from '../src/workflows/exploration.js';
+import { describe, expect, test, vi } from 'vitest';
+import { runDefault } from '../src/factory/run.js';
 import type { Explore } from '../src/agents/exploration.js';
 import type { Ask } from '../src/contracts/interaction.js';
 import { brief } from './fixtures/brief.js';
+import { createWorkflowSetup } from './fixtures/workflow.js';
 
-afterEach(() => {
-  vi.useRealTimers();
-});
 const question = { question: 'Which format?', context: '', options: ['CSV'] };
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -19,75 +14,48 @@ function deferred<T>() {
   return { promise, resolve };
 }
 function setup(explore: Explore = () => Promise.resolve(brief)) {
-  const save = vi.fn().mockResolvedValue('issue.json');
-  const mastra = new Mastra({
-    logger: false,
-    workflows: { exploration: createExplorationWorkflow({ explore, save }) },
-  });
-  return {
-    issue: 'Export issues',
-    explore,
-    ask: vi.fn<Ask>().mockResolvedValue(' CSV '),
-    save,
-    workflow: mastra.getWorkflow('exploration'),
-    signal: new AbortController().signal,
-    timeoutMs: 30_000,
-  };
+  return createWorkflowSetup(explore);
 }
 
-describe('Mastra exploration workflow', () => {
-  test('executes typed steps and saves using the native workflow run ID', async () => {
-    const options = setup();
-    const run = await options.workflow.createRun();
-    const result = await run.start({
-      inputData: { issue: ' Export issues ' },
-      requestContext: new RequestContext([
-        ['ask', options.ask],
-        ['signal', options.signal],
-      ]),
-    });
-    expect(result.status).toBe('success');
-    expect(result.steps['explore-issue']).toMatchObject({
-      status: 'success',
-      output: brief,
-    });
-    expect(result.steps['save-brief']).toMatchObject({
-      status: 'success',
-      output: { id: run.runId, brief, outputFile: 'issue.json' },
-    });
-    expect(options.save).toHaveBeenCalledExactlyOnceWith(run.runId, brief);
-  });
-  test('validates answers, resumes the agent, and saves the validated result', async () => {
+describe('default workflow exploration stages', () => {
+  test('validates answers and passes the brief directly to preparation in the same run', async () => {
     const options = setup(async (issue, ask, signal) => {
       expect(issue).toBe('Export issues');
       expect(await ask(question, signal)).toBe('CSV');
       return brief;
     });
-    const result = await runExploration(options);
-    expect(result.brief).toEqual(brief);
-    expect(result.outputFile).toBe('issue.json');
-    expect(options.save).toHaveBeenCalledWith(result.id, brief);
+    const createRun = vi.spyOn(options.workflow, 'createRun');
+    const result = await runDefault(options);
+    expect(createRun).toHaveBeenCalledOnce();
+    expect(options.operations.prepare).toHaveBeenCalledWith(
+      brief,
+      expect.any(AbortSignal),
+    );
+    expect(options.runtime).toHaveBeenCalledWith(
+      result.runId,
+      expect.any(AbortSignal),
+    );
     expect(options.ask).toHaveBeenCalledWith(question, expect.any(AbortSignal));
   });
   test('fails closed on invalid model output or an empty answer', async () => {
     const invalid = setup(() => Promise.resolve({ title: 'Not a brief' }));
-    await expect(runExploration(invalid)).rejects.toThrow('invalid brief');
-    expect(invalid.save).not.toHaveBeenCalled();
+    await expect(runDefault(invalid)).rejects.toThrow('invalid brief');
+    expect(invalid.operations.prepare).not.toHaveBeenCalled();
     const empty = setup(async (_issue, ask, signal) => {
       await ask(question, signal);
       return brief;
     });
     empty.ask.mockResolvedValue(' ');
-    await expect(runExploration(empty)).rejects.toThrow('Exploration failed');
-    expect(empty.save).not.toHaveBeenCalled();
+    await expect(runDefault(empty)).rejects.toThrow('Exploration failed');
+    expect(empty.operations.prepare).not.toHaveBeenCalled();
   });
   test('rejects empty issues before calling the agent', async () => {
     const options = setup(vi.fn());
     options.issue = ' ';
-    await expect(runExploration(options)).rejects.toThrow();
+    await expect(runDefault(options)).rejects.toThrow();
     expect(options.explore).not.toHaveBeenCalled();
   });
-  test('cancellation aborts pending work and never saves late results', async () => {
+  test('cancellation aborts pending work and never prepares late results', async () => {
     const controller = new AbortController();
     const started = deferred<void>();
     let finish: (value: unknown) => void = () => {};
@@ -102,7 +70,7 @@ describe('Mastra exploration workflow', () => {
     const cancel = vi.spyOn(run, 'cancel');
     vi.spyOn(options.workflow, 'createRun').mockResolvedValueOnce(run);
     options.signal = controller.signal;
-    const running = runExploration(options);
+    const running = runDefault(options);
     await started.promise;
     controller.abort(new Error('Stopped by user.'));
     await expect(running).rejects.toThrow('Stopped by user.');
@@ -112,9 +80,9 @@ describe('Mastra exploration workflow', () => {
     await new Promise((resolve) => {
       setImmediate(resolve);
     });
-    expect(options.save).not.toHaveBeenCalled();
+    expect(options.operations.prepare).not.toHaveBeenCalled();
   });
-  test('native cancellation aborts the agent and prevents the save step', async () => {
+  test('native cancellation aborts the agent and prevents preparation', async () => {
     const started = deferred<AbortSignal>();
     const finished = deferred<unknown>();
     const options = setup((_issue, _ask, signal) => {
@@ -124,17 +92,14 @@ describe('Mastra exploration workflow', () => {
     const run = await options.workflow.createRun();
     const running = run.start({
       inputData: { issue: options.issue },
-      requestContext: new RequestContext([
-        ['ask', options.ask],
-        ['signal', options.signal],
-      ]),
+      requestContext: options.requestContext(run.runId),
     });
     const signal = await started.promise;
     await run.cancel();
     expect(signal.aborted).toBe(true);
     finished.resolve(brief);
     await running;
-    expect(options.save).not.toHaveBeenCalled();
+    expect(options.operations.prepare).not.toHaveBeenCalled();
   });
   test('shared workflow definitions keep concurrent runs and answers separate', async () => {
     const options = setup(async (issue, ask, signal) => {
@@ -144,10 +109,10 @@ describe('Mastra exploration workflow', () => {
     const firstAsk = vi.fn<Ask>().mockResolvedValue('First issue');
     const secondAsk = vi.fn<Ask>().mockResolvedValue('Second issue');
     const results = await Promise.all([
-      runExploration({ ...options, issue: 'First issue', ask: firstAsk }),
-      runExploration({ ...options, issue: 'Second issue', ask: secondAsk }),
+      runDefault({ ...options, issue: 'First issue', ask: firstAsk }),
+      runDefault({ ...options, issue: 'Second issue', ask: secondAsk }),
     ]);
-    expect(results[0].id).not.toBe(results[1].id);
+    expect(results[0].runId).not.toBe(results[1].runId);
     expect(firstAsk).toHaveBeenCalledExactlyOnceWith(
       { ...question, question: 'First issue' },
       expect.any(AbortSignal),
@@ -156,9 +121,7 @@ describe('Mastra exploration workflow', () => {
       { ...question, question: 'Second issue' },
       expect.any(AbortSignal),
     );
-    for (const result of results) {
-      expect(options.save).toHaveBeenCalledWith(result.id, brief);
-    }
+    expect(options.operations.prepare).toHaveBeenCalledTimes(2);
   });
   test('rejects concurrent questions and closes pending input when the run ends', async () => {
     let promptSignal: AbortSignal | undefined;
@@ -178,30 +141,22 @@ describe('Mastra exploration workflow', () => {
         });
       });
     });
-    await runExploration(options);
+    await runDefault(options);
     expect(promptSignal?.aborted).toBe(true);
   });
   test('times out even when an agent is not responding', async () => {
     vi.useFakeTimers();
     const options = setup(() => new Promise(() => {}));
-    const running = expect(runExploration(options)).rejects.toThrow(
-      'timed out',
-    );
+    const running = expect(runDefault(options)).rejects.toThrow('timed out');
     await vi.advanceTimersByTimeAsync(30_001);
     await running;
-    expect(options.save).not.toHaveBeenCalled();
+    expect(options.operations.prepare).not.toHaveBeenCalled();
   });
   test('does not expose provider secrets in errors', async () => {
     const options = setup(() =>
       Promise.reject(new Error('Authorization: Bearer secret-key')),
     );
-    await expect(runExploration(options)).rejects.not.toThrow('secret-key');
-  });
-  test('reports output errors without exposing raw details', async () => {
-    const options = setup();
-    options.save.mockRejectedValue(new Error('sensitive/path'));
-    await expect(runExploration(options)).rejects.toThrow('Check outputDir');
-    expect(options.save).toHaveBeenCalledOnce();
+    await expect(runDefault(options)).rejects.not.toThrow('secret-key');
   });
   test('never starts a pre-cancelled run', async () => {
     const controller = new AbortController();
@@ -209,7 +164,7 @@ describe('Mastra exploration workflow', () => {
     const explore = vi.fn<Explore>();
     const options = { ...setup(explore), signal: controller.signal };
     const createRun = vi.spyOn(options.workflow, 'createRun');
-    await expect(runExploration(options)).rejects.toThrow('Already stopped.');
+    await expect(runDefault(options)).rejects.toThrow('Already stopped.');
     expect(explore).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
   });

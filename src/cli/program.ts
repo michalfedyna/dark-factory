@@ -11,29 +11,17 @@ export function createProgram(version: string): Command {
 
   program
     .command('start')
-    .description(
-      'Explore an issue in the terminal and write a structured brief',
-    )
+    .description('Run the default workflow from issue exploration to delivery')
     .option('-i, --issue <text>', 'Issue to explore (otherwise prompt)')
-    .option(
-      '--deliver',
-      'Continue the confirmed brief through implementation, QA, review, and draft PR publication',
-    )
     .option(
       '-c, --config <path>',
       'Factory configuration file',
       'factory.config.json',
     )
-    .action(
-      async (options: {
-        config: string;
-        issue?: string;
-        deliver?: boolean;
-      }) => {
-        const { startCommand } = await import('./start.js');
-        await startCommand(options);
-      },
-    );
+    .action(async (options: { config: string; issue?: string }) => {
+      const { startCommand } = await import('./start.js');
+      await startCommand(options);
+    });
 
   // Keep the scaffold's strict unknown-argument behavior on the root command.
   program.allowExcessArguments(false);

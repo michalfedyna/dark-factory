@@ -35,8 +35,9 @@ is responsible for faithfully recording the conversation, and the user should
 review the brief before downstream execution. Unverified assumptions remain
 visible even in a confirmed brief.
 
-Only the brief is saved and printed to stdout, not API keys or run metadata. Each
-file is named `<run-uuid>.json` under `outputDir`; the CLI writes prompts and the
-saved path to stderr. Files are created exclusively (no overwrite), with
-owner-only permissions where the platform supports them. Active conversations
-are not saved for resume.
+The `default` workflow passes the brief in memory from exploration to preparation,
+just like other step outputs. There is no separate issue JSON file or save step.
+After implementation approval, the run's private input/state artifacts include the
+brief alongside the inferred project plan and verification state. Stdout is
+reserved for the final validated workflow result; prompts and progress go to
+stderr. Active conversations are not saved for resume.
