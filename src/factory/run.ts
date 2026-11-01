@@ -3,6 +3,7 @@ import { issueInputSchema, type Ask } from '../contracts/interaction.js';
 import type { Observe } from '../contracts/progress.js';
 import type { createDefaultWorkflow } from '../workflows/default.js';
 import type { DeliveryOperations } from '../delivery/operations.js';
+import { PublicationError } from '../integrations/github/publish.js';
 
 const explorationError =
   'Exploration failed or returned an invalid brief. Check router authentication/model access and try again.';
@@ -56,12 +57,19 @@ export async function runDefault(options: {
           ]),
         })
         .catch((error: unknown) => {
+          if (error instanceof PublicationError) throw error;
           throw new Error(workflowError, { cause: error });
         }),
       aborted,
     ]);
     signal.throwIfAborted();
     if (result.status !== 'success') {
+      const publication = result.steps['publish-delivery'];
+      if (
+        publication?.status === 'failed' &&
+        publication.error instanceof PublicationError
+      )
+        throw publication.error;
       throw new Error(
         result.steps['explore-issue']?.status === 'failed'
           ? explorationError

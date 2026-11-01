@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { runDefault } from '../src/factory/run.js';
 import type { DeliveryRound, Finding } from '../src/contracts/delivery.js';
 import { validateQa } from '../src/delivery/qa-policy.js';
+import { PublicationError } from '../src/integrations/github/publish.js';
 import { brief } from './fixtures/brief.js';
 import { implementation, uiProjectPlan } from './fixtures/delivery.js';
 import {
@@ -435,6 +436,34 @@ describe('default workflow delivery stages', () => {
       new Error('Authorization: Bearer private-key'),
     );
     await expect(runDefault(options)).rejects.toThrow('Workflow failed');
+    expect(close).toHaveBeenCalledOnce();
+  });
+  test('publication recovery details survive a failed Mastra step without exposing its cause', async () => {
+    const { run, operations, close } = setup();
+    const journal = '/private/run/publication.json';
+    operations.finish.mockRejectedValue(
+      new PublicationError(
+        'push',
+        journal,
+        new Error('Authorization: Bearer private-key'),
+      ),
+    );
+    const failed = run();
+    await expect(failed).rejects.toBeInstanceOf(PublicationError);
+    await expect(failed).rejects.toThrow('Git push');
+    await expect(failed).rejects.toThrow(journal);
+    await expect(failed).rejects.not.toThrow('private-key');
+    expect(operations.finish).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+  test('unexpected finish errors remain private', async () => {
+    const { run, operations, close } = setup();
+    operations.finish.mockRejectedValue(
+      new Error('Authorization: Bearer private-key'),
+    );
+    const failed = run();
+    await expect(failed).rejects.toThrow('Workflow failed');
+    await expect(failed).rejects.not.toThrow('private-key');
     expect(close).toHaveBeenCalledOnce();
   });
 });

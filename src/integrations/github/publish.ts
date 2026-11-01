@@ -7,6 +7,20 @@ import { hostCommand } from '../git/command.js';
 import { validateScreenshot } from '../../delivery/evidence.js';
 import { renderPullRequest } from '../../delivery/pull-request.js';
 
+export class PublicationError extends Error {
+  constructor(
+    operation: 'push' | 'create-pr',
+    journal: string,
+    cause: unknown,
+  ) {
+    const action = operation === 'push' ? 'Git push' : 'Draft PR creation';
+    super(
+      `${action} failed or its outcome is uncertain. Check gh auth status and repository permissions. Check ${journal} and GitHub before retrying; publication is never automatically retried.`,
+      { cause },
+    );
+  }
+}
+
 export async function publishPullRequest(options: {
   project: Pick<Project, 'githubRepo' | 'baseBranch'>;
   repository: RunRepository;
@@ -127,20 +141,40 @@ export async function publishPullRequest(options: {
     repository: project.githubRepo,
     bodyFile: basename(bodyFile),
   };
+  let operation: 'push' | 'create-pr' = 'push';
   await writeFile(
     journal,
-    JSON.stringify({ ...publication, status: 'publishing' }, null, 2),
+    JSON.stringify(
+      { ...publication, status: 'publishing', operation },
+      null,
+      2,
+    ),
     { mode: 0o600 },
   );
   signal.throwIfAborted();
   try {
     await repository.git(
       [
+        // Use gh's active credentials without changing the user's Git config.
+        '-c',
+        'credential.https://github.com.helper=',
+        '-c',
+        'credential.https://github.com.helper=!gh auth git-credential',
         'push',
         `https://github.com/${project.githubRepo}.git`,
         `HEAD:refs/heads/${branch}`,
       ],
       signal,
+    );
+    operation = 'create-pr';
+    await writeFile(
+      journal,
+      JSON.stringify(
+        { ...publication, status: 'publishing', operation },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
     );
     const url = (
       await hostCommand(
@@ -179,13 +213,14 @@ export async function publishPullRequest(options: {
   } catch (error) {
     await writeFile(
       journal,
-      JSON.stringify({ ...publication, status: 'uncertain' }, null, 2),
+      JSON.stringify(
+        { ...publication, status: 'uncertain', operation },
+        null,
+        2,
+      ),
       { mode: 0o600 },
     );
     signal.throwIfAborted();
-    throw new Error(
-      `Publication failed or its outcome is uncertain. Check ${journal} and GitHub before retrying; publication is never automatically retried.`,
-      { cause: error },
-    );
+    throw new PublicationError(operation, journal, error);
   }
 }

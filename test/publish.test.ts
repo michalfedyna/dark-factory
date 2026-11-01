@@ -7,13 +7,16 @@ import {
   createRunRepository,
   readBase,
 } from '../src/integrations/git/repository.js';
-import { publishPullRequest } from '../src/integrations/github/publish.js';
+import {
+  PublicationError,
+  publishPullRequest,
+} from '../src/integrations/github/publish.js';
 import { renderPullRequest } from '../src/delivery/pull-request.js';
 import type { DeliveryState } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
 import { implementation, projectPlan, png } from './fixtures/delivery.js';
 
-const external = vi.hoisted(() => ({ fail: false, base: '' }));
+const external = vi.hoisted(() => ({ fail: false, failPush: false, base: '' }));
 vi.mock('../src/integrations/git/command.js', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../src/integrations/git/command.js')>();
@@ -27,7 +30,10 @@ vi.mock('../src/integrations/git/command.js', async (importOriginal) => {
           return external.fail
             ? Promise.reject(new Error('private provider error'))
             : Promise.resolve('https://github.com/example/project/pull/12\n');
-        if (args.includes('push')) return Promise.resolve('');
+        if (args.includes('push'))
+          return external.failPush
+            ? Promise.reject(new Error('Authorization: Bearer private-key'))
+            : Promise.resolve('');
         return actual.hostCommand(command, args, signal, cwd);
       }),
   };
@@ -35,6 +41,7 @@ vi.mock('../src/integrations/git/command.js', async (importOriginal) => {
 const directories: string[] = [];
 afterEach(async () => {
   external.fail = false;
+  external.failPush = false;
   vi.clearAllMocks();
   await Promise.all(
     directories
@@ -158,6 +165,18 @@ test('publishes only verified code and evidence, links screenshots, and creates 
     .mock.calls.find(([, args]) => args.includes('push'));
   expect(push?.[1]).toContain('HEAD:refs/heads/darkfactory/test-run');
   expect(push?.[1]).not.toContain('--force');
+  expect(push?.[1].slice(-7)).toEqual([
+    '-c',
+    'credential.https://github.com.helper=',
+    '-c',
+    'credential.https://github.com.helper=!gh auth git-credential',
+    'push',
+    'https://github.com/example/project.git',
+    'HEAD:refs/heads/darkfactory/test-run',
+  ]);
+  expect(
+    await options.repository.git(['config', '--local', '--list']),
+  ).not.toContain('credential.');
   const head = await options.repository.git(['rev-parse', 'HEAD']);
   const body = await readFile(
     join(options.directory, 'pull-request.md'),
@@ -276,8 +295,11 @@ test('an uncertain GitHub response is journaled and is never automatically retri
   );
   const publication = JSON.parse(
     await readFile(join(options.directory, 'publication.json'), 'utf8'),
-  ) as { status: string };
-  expect(publication.status).toBe('uncertain');
+  ) as { status: string; operation: string };
+  expect(publication).toMatchObject({
+    status: 'uncertain',
+    operation: 'create-pr',
+  });
   expect(
     vi
       .mocked(hostCommand)
@@ -285,6 +307,35 @@ test('an uncertain GitHub response is journaled and is never automatically retri
         ([command, args]) => command === 'gh' && args[0] === 'pr',
       ),
   ).toHaveLength(1);
+});
+
+test('a failed push reports safe recovery details and never attempts PR creation', async () => {
+  const options = await setup();
+  external.failPush = true;
+  const failed = publishPullRequest(options);
+  await expect(failed).rejects.toBeInstanceOf(PublicationError);
+  await expect(failed).rejects.toThrow('Git push');
+  await expect(failed).rejects.toThrow('gh auth status');
+  await expect(failed).rejects.toThrow(
+    join(options.directory, 'publication.json'),
+  );
+  await expect(failed).rejects.not.toThrow('private-key');
+  const publication: unknown = JSON.parse(
+    await readFile(join(options.directory, 'publication.json'), 'utf8'),
+  );
+  expect(publication).toMatchObject({ status: 'uncertain', operation: 'push' });
+  expect(
+    vi
+      .mocked(hostCommand)
+      .mock.calls.filter(([, args]) => args.includes('push')),
+  ).toHaveLength(1);
+  expect(
+    vi
+      .mocked(hostCommand)
+      .mock.calls.some(
+        ([command, args]) => command === 'gh' && args[0] === 'pr',
+      ),
+  ).toBe(false);
 });
 
 test('base branch drift blocks publication before any push or PR write', async () => {

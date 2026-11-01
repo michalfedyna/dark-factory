@@ -22,10 +22,12 @@ step. Prompts and progress remain on stderr.
    base, pinned at startup; detached checkouts are rejected rather than guessed.
    Commit intended starting code before running. Uncommitted and untracked user
    work is not copied into the implementation checkout or edited.
-2. Install Git and the GitHub CLI. Authenticate `gh auth login` and configure Git
-   HTTPS authentication, for example `gh auth setup-git`. The account needs push
-   and PR permissions on the inferred repository. The initial version publishes
-   to the same GitHub repository, not a fork.
+2. Install Git and the GitHub CLI. Authenticate with `gh auth login`. Publication
+   uses GitHub CLI credentials for both HTTPS pushes and PR creation, without
+   changing Git configuration or requiring `gh auth setup-git`. This also applies
+   when the discovered remote uses SSH. The account needs push and PR permissions
+   on the inferred repository. The initial version publishes to the same GitHub
+   repository, not a fork.
 3. For web QA, install `agent-browser` and run `agent-browser install`. For native
    QA, install `agent-device`, run `agent-device doctor`, and prepare Xcode/iOS
    Simulator or Android SDK/emulators. Use test accounts and disposable app data.
@@ -202,10 +204,12 @@ uploaded. Screenshots are published without a later confirmation and may contain
 sensitive information: use test accounts and disposable data. This is not a secret scanning service.
 
 `publication.json` records the branch and publication state before external
-effects. A failed/ambiguous push or GitHub response is marked `uncertain` and is
-**never automatically retried**. Check that journal and GitHub before any manual
-recovery to avoid duplicate PRs. Published PRs are not merged, deployed, or marked
-CI-ready by the factory.
+effects, including the current operation (`push` or `create-pr`). A failed/ambiguous
+push or GitHub response is marked `uncertain` and is **never automatically retried**.
+The CLI reports the failed operation and journal path without printing raw command
+errors or credentials. Check `gh auth status`, repository permissions, that journal,
+and GitHub before any manual recovery to avoid duplicate PRs. Published PRs are not
+merged, deployed, or marked CI-ready by the factory.
 
 ## Initial-version boundaries
 
