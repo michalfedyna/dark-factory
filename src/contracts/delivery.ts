@@ -18,11 +18,11 @@ export const implementationSchema = z
     verification: verificationPlanSchema.nullable(),
   })
   .refine(
-    (result) =>
-      result.blockers.length
-        ? result.verification === null
-        : result.verification !== null,
-    'Successful implementation requires verification commands and targets; blocked implementation returns null verification.',
+    (result) => result.blockers.length > 0 || result.verification !== null,
+    {
+      path: ['verification'],
+      message: 'Implementation without blockers requires a verification plan.',
+    },
   );
 export const qaSchema = z.strictObject({
   verdict: z.enum(['pass', 'changes-requested', 'blocked']),

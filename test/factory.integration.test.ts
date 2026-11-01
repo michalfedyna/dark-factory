@@ -230,10 +230,15 @@ test('EOF fails without inventing an answer or preparing a repository', async ()
   }
 }, 20_000);
 
-test.each(['chat', 'responses'])(
-  'implementation reports genuine blockers without prompting after plan confirmation (%s)',
-  async (api) => {
-    const run = await factory(api, 'Export issues', 'implementation-blocked');
+test.each([
+  ['chat', 'implementation-blocked'],
+  ['responses', 'implementation-blocked'],
+  ['chat', 'implementation-blocked-with-plan'],
+  ['responses', 'implementation-blocked-with-plan'],
+])(
+  'implementation reports genuine blockers without prompting after plan confirmation (%s, %s)',
+  async (api, mode) => {
+    const run = await factory(api, 'Export issues', mode);
     try {
       run.child.stdin.end('CSV\nStart\n');
       expect(await run.exit, run.stderr()).toEqual([1, null]);
@@ -242,9 +247,16 @@ test.each(['chat', 'responses'])(
       ).toMatchObject({
         status: 'blocked',
         reason: 'Missing external API contract.',
+        rounds: 1,
+        revision: null,
+        summary: null,
+        pullRequestUrl: null,
       });
       expect(run.stderr()).not.toContain('Input ended');
       expect(run.stderr()).not.toContain('Implement this brief?');
+      expect(run.stderr()).not.toContain(
+        'STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED',
+      );
       expect(run.stderr()).toContain('Implementing');
       const contexts = await readFile(
         join(run.directory, 'agent-contexts.jsonl'),
@@ -252,6 +264,8 @@ test.each(['chat', 'responses'])(
       );
       expect(contexts).not.toContain('"role":"inspection"');
       expect(contexts).not.toContain('"role":"qa"');
+      expect(contexts).not.toContain('"role":"review"');
+      expect(contexts).not.toContain('"role":"summary"');
       await run.assertStopped();
     } finally {
       await run.clean();

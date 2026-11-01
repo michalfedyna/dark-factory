@@ -3,7 +3,7 @@ import { runDefault } from '../src/factory/run.js';
 import type { DeliveryRound, Finding } from '../src/contracts/delivery.js';
 import { validateQa } from '../src/delivery/qa-policy.js';
 import { brief } from './fixtures/brief.js';
-import { implementation } from './fixtures/delivery.js';
+import { implementation, uiProjectPlan } from './fixtures/delivery.js';
 import {
   createWorkflowSetup as setup,
   qaPass,
@@ -203,21 +203,32 @@ describe('default workflow delivery stages', () => {
     expect(result.reason).toContain('no progress');
     expect(operations.implement).toHaveBeenCalledTimes(2);
   });
-  test('implementation blockers stop before capture or verification', async () => {
-    const { run, operations } = setup();
-    operations.implement.mockResolvedValue({
-      summary: 'Cannot proceed.',
-      blockers: ['A required API contract is missing.'],
-      verification: null,
-    });
-    await expect(run()).resolves.toMatchObject({
-      status: 'blocked',
-      rounds: 1,
-      reason: 'A required API contract is missing.',
-    });
-    expect(operations.capture).not.toHaveBeenCalled();
-    expect(operations.checks).not.toHaveBeenCalled();
-  });
+  test.each([null, uiProjectPlan])(
+    'implementation blockers stop before capture or verification even with a plan: %j',
+    async (verification) => {
+      const { run, operations, close } = setup();
+      operations.implement.mockResolvedValue({
+        summary: 'Cannot proceed.',
+        blockers: ['A required API contract is missing.'],
+        verification,
+      });
+      await expect(run()).resolves.toMatchObject({
+        status: 'blocked',
+        rounds: 1,
+        reason: 'A required API contract is missing.',
+        revision: null,
+        summary: null,
+        pullRequestUrl: null,
+      });
+      expect(operations.capture).not.toHaveBeenCalled();
+      expect(operations.checks).not.toHaveBeenCalled();
+      expect(operations.qa).not.toHaveBeenCalled();
+      expect(operations.review).not.toHaveBeenCalled();
+      expect(operations.summarize).not.toHaveBeenCalled();
+      expect(operations.finish.mock.calls[0]?.[0].status).toBe('blocked');
+      expect(close).toHaveBeenCalledOnce();
+    },
+  );
   test.each([null, { checks: [], targets: [] }])(
     'successful implementation cannot skip verification: %j',
     async (verification) => {

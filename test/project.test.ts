@@ -6,7 +6,7 @@ import { verificationPlanSchema } from '../src/contracts/project.js';
 import { implementationSchema } from '../src/contracts/delivery.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import { inspectRepository } from '../src/integrations/git/inspect.js';
-import { projectPlan } from './fixtures/delivery.js';
+import { projectPlan, uiProjectPlan } from './fixtures/delivery.js';
 
 const directories: string[] = [];
 const signal = new AbortController().signal;
@@ -68,7 +68,7 @@ test.each([
   },
 );
 
-test('implementation returns real verification commands or a genuine blocker', () => {
+test('implementation without blockers requires a valid verification plan', () => {
   const verification = verificationPlanSchema.parse({
     checks: projectPlan.checks,
   });
@@ -79,18 +79,14 @@ test('implementation returns real verification commands or a genuine blocker', (
       blockers: [],
     }).success,
   ).toBe(true);
-  expect(
-    implementationSchema.safeParse({
-      summary: 'Blocked.',
-      verification: null,
-      blockers: ['Missing app identifier.'],
-    }).success,
-  ).toBe(true);
   for (const result of [
     { verification: null, blockers: [] },
-    { verification, blockers: ['Missing app identifier.'] },
     { verification: null, blockers: [' '] },
     { verification: { ...verification, checks: [] }, blockers: [] },
+    {
+      verification: { ...verification, checks: [] },
+      blockers: ['Missing app identifier.'],
+    },
     { blockers: [] },
   ])
     expect(
@@ -98,6 +94,18 @@ test('implementation returns real verification commands or a genuine blocker', (
         .success,
     ).toBe(false);
 });
+
+test.each([null, uiProjectPlan])(
+  'blocked implementation accepts null or a valid verification plan: %j',
+  (verification) => {
+    const result = {
+      summary: 'Implemented; local browser verification remains unavailable.',
+      blockers: ['Chromium launch was denied by the host.'],
+      verification,
+    };
+    expect(implementationSchema.parse(result)).toEqual(result);
+  },
+);
 
 test('does not invent a publication target for a repository without a remote', async () => {
   const { repository } = await setup();

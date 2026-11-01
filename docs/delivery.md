@@ -71,8 +71,14 @@ meaningful deterministic check and all required web/native QA targets. Commands
 must match the actual implemented project, including newly created scripts. The
 controller captures the candidate before executing those checks and starting QA;
 agent claims are not verification evidence. Each repair supplies its own fresh
-plan. Only non-UI work may omit targets. Genuine external blockers return null
-verification and specific reasons; missing scaffolding is implementation work.
+plan. Only non-UI work may omit targets. Independent browser/device QA and
+screenshots belong to the later QA stage, not implementation. Implementation
+reports local verification limitations in its summary without claiming a pass;
+pending QA alone is not an implementation blocker. Genuine blockers include
+specific reasons and may include a known valid plan, or null verification when
+none can be supplied. Any implementation blocker stops the run before capture,
+checks, or publication, even if a plan is present. Missing scaffolding is
+implementation work.
 
 Implementation may change any non-protected repository path within the confirmed
 brief. Review independently checks scope. Native-isolated project sandboxes allow

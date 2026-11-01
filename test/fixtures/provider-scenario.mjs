@@ -25,12 +25,24 @@ export function scenarioReply(request, resultPath, mode) {
       },
     };
   }
-  if (role === 'implementation' && mode === 'implementation-blocked')
+  if (
+    role === 'implementation' &&
+    (mode === 'implementation-blocked' ||
+      mode === 'implementation-blocked-with-plan')
+  )
     return {
       result: {
         summary: 'Cannot proceed.',
         blockers: ['Missing external API contract.'],
-        verification: null,
+        verification:
+          mode === 'implementation-blocked-with-plan'
+            ? JSON.parse(
+                readFileSync(
+                  join(dirname(resultPath), 'verification-plan.json'),
+                  'utf8',
+                ),
+              )
+            : null,
       },
     };
   if (role === 'implementation' && mode === 'delivery-scaffold') {
