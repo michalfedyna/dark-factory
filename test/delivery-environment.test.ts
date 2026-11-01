@@ -200,6 +200,8 @@ test('preparation failures can be journaled before live run resources exist', as
   const runtime = createDeliveryRuntime(options);
   const failure = runtime.operations.prepare(brief, options.signal);
   await expect(failure).rejects.toThrow('base branch changed');
+  expect(createRunRepository).not.toHaveBeenCalled();
+  expect(sandboxInstances).toHaveLength(0);
   const error: unknown = await failure.catch((error: unknown) => error);
   const path = await runtime.operations.recordFailure(
     'prepare-delivery',
@@ -378,16 +380,6 @@ test('preparation needs only Git metadata, not an existing executable app', asyn
       await readFile(join(source, '.darkfactory/runs/run/input.json'), 'utf8'),
     ),
   ).toMatchObject({ brief, baseRevision: 'base' });
-});
-
-test('a moved base still blocks before acquiring mutable resources', async () => {
-  const { environment, options } = await setup();
-  vi.mocked(readBase).mockResolvedValueOnce('new-base');
-  await expect(environment.prepare(brief, options.signal)).rejects.toThrow(
-    'base branch changed',
-  );
-  expect(createRunRepository).not.toHaveBeenCalled();
-  expect(sandboxInstances).toHaveLength(0);
 });
 
 test('host execution does not require or detect a native isolation backend', async () => {

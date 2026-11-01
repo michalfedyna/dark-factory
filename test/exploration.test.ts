@@ -69,6 +69,7 @@ describe('default workflow exploration stages', () => {
     );
     await expect(runDefault(options)).rejects.toThrow('Workflow failed');
     expect(options.onDeliveryStart).not.toHaveBeenCalled();
+    expect(options.operations.prepare).not.toHaveBeenCalled();
   });
   test('fails closed on invalid model output or an empty answer', async () => {
     const invalid = setup(() => Promise.resolve({ title: 'Not a brief' }));

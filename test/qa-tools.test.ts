@@ -135,7 +135,6 @@ test.each(['ENOENT', 'EACCES'])(
   },
 );
 test.each([
-  ['1280', '800'],
   ['390', '844'],
   ['1', '1'],
   ['10000', '10000'],
@@ -297,40 +296,28 @@ test.each([
     expect(evidence.records).toHaveLength(0);
   },
 );
-test('screenshot paths are controller-owned and only validated files count as evidence', async () => {
-  const { tools, evidence, directory } = await setup();
-  await expect(
-    tools.agent_browser!.execute!(
-      { targetId: 'web', operation: 'screenshot', args: [] },
-      {},
-    ),
-  ).resolves.toMatchObject({ exitCode: 0 });
-  const image = evidence.records[0]!;
-  expect(image.kind).toBe('screenshot');
-  expect(image.path.startsWith(join(directory, 'evidence'))).toBe(true);
-  expect(await readFile(image.path)).toEqual(png);
-});
-test('a tool returning success without a valid image is failed evidence', async () => {
-  const { tools, evidence } = await setup(true);
-  await expect(
-    tools.agent_browser!.execute!(
-      { targetId: 'web', operation: 'screenshot', args: [] },
-      {},
-    ),
-  ).resolves.toMatchObject({ exitCode: 1 });
-  expect(evidence.records[0]?.exitCode).toBe(1);
-});
 test.each([
   ['agent_browser', 'web'],
   ['agent_device', 'ios'],
 ] as const)(
   '%s returns captured UI images directly to the model without file access',
   async (name, targetId) => {
-    const { tools } = await setup();
+    const { tools, evidence, directory, invocation } = await setup();
     const tool = tools[name]!;
     const result = qaResultSchema.parse(
       await tool.execute!({ targetId, operation: 'screenshot', args: [] }, {}),
     );
+    const image = evidence.records[0]!;
+    expect(image).toMatchObject({
+      kind: 'screenshot',
+      operation: 'screenshot',
+      targetId,
+      exitCode: 0,
+    });
+    expect(image.path.startsWith(join(directory, 'evidence'))).toBe(true);
+    expect(await readFile(image.path)).toEqual(png);
+    if (name === 'agent_device')
+      expect((await invocation()).args).toContain('--platform');
     const output = tool.toModelOutput!(result);
     expect(output).toEqual({
       type: 'content',
@@ -356,12 +343,13 @@ test.each([
 ] as const)(
   '%s does not send invalid screenshot data to the model',
   async (name, targetId) => {
-    const { tools } = await setup(true);
+    const { tools, evidence } = await setup(true);
     const tool = tools[name]!;
     const result = qaResultSchema.parse(
       await tool.execute!({ targetId, operation: 'screenshot', args: [] }, {}),
     );
     expect(result).toMatchObject({ exitCode: 1 });
+    expect(evidence.records[0]?.exitCode).toBe(1);
     expect(result).not.toHaveProperty('image');
     expect(tool.toModelOutput!(result)).toEqual({
       type: 'content',
@@ -432,23 +420,6 @@ test('QA exposes only integrations applicable to the configured targets', async 
   expect(
     createQaTools({ ...options, project: { ...options.project, targets: [] } }),
   ).toEqual({});
-});
-
-test('device screenshots use controller-owned paths and native evidence', async () => {
-  const { tools, evidence, invocation } = await setup();
-  await expect(
-    tools.agent_device!.execute!(
-      { targetId: 'ios', operation: 'screenshot', args: [] },
-      {},
-    ),
-  ).resolves.toMatchObject({ exitCode: 0 });
-  expect(evidence.records[0]).toMatchObject({
-    kind: 'screenshot',
-    operation: 'screenshot',
-    targetId: 'ios',
-  });
-  expect((await invocation()).args).toContain('--platform');
-  expect(await readFile(evidence.records[0]!.path)).toEqual(png);
 });
 
 test('neither tool accepts agent-selected screenshot output paths', async () => {

@@ -72,3 +72,15 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Avoid unnecessary dependencies and features.
 - Test module behavior and the boundaries between modules.
 - Document configuration options and changes to user-facing behavior.
+
+## Test Quality
+
+- Every test must protect a named behavior or failure risk. Before adding a regression test, find existing coverage and extend it when the same scenario is already tested. A refactor alone does not need a new test.
+- Give each rule one primary test owner at the lowest useful layer. Add integration tests for real wiring, transport, process, or resource boundaries, not to repeat the unit-test matrix.
+- Test our code, not dependency defaults or unchanged presets. Do not test Commander or Zod exhaustively or add mock-only tests that merely restate trivial forwarding code. Use generated inputs only for meaningful invariants in our own logic.
+- Do not freeze prompt prose, incidental copy, private constructor options, or whole rendered documents. Assert required content, capability restrictions, structured context, and observable outcomes. Exact output is appropriate when formatting or a machine-readable protocol is the behavior under test.
+- An offline scripted provider proves tool execution and transport, not that a real model follows instructions. Keep prompt review separate from deterministic capability and workflow tests.
+- Parameterize distinct rules, boundaries, and wire formats. Do not multiply every workflow scenario by provider and streaming mode when focused adapter tests already cover those combinations.
+- Make failures specific: assert the relevant error or outcome and that forbidden work did not run. Set up the state named by the test; pre-cancelled means cancelled before construction, and cancellation during work must wait until that work starts.
+- Keep security, cancellation, stale-evidence, publication-gate, and cleanup tests when they protect different entry points or resource owners. Similar assertions at different safety boundaries are not automatically duplicates.
+- Use coverage and mutation reports to find missing behavior, not to justify redundant tests or assertion counts. After pruning, run the full suite and check that removed scenarios still have a clear coverage owner.

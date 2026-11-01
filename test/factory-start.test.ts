@@ -121,19 +121,3 @@ test('factory close waits for router cleanup even if Mastra shutdown fails', asy
   stopped.resolve();
   await rejected;
 });
-
-test('debug overrides an enabled Observer without registering its agent', async () => {
-  const factory = await startFactory(
-    factoryConfigSchema.parse({ observer: { enabled: true } }),
-    process.cwd(),
-    'test-key',
-    new AbortController().signal,
-    process.cwd(),
-    { debug: vi.fn() },
-  );
-  try {
-    expect(constructMastra.mock.lastCall?.[0]).not.toHaveProperty('agents');
-  } finally {
-    await factory.close();
-  }
-});

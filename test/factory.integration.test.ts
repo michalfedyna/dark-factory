@@ -96,86 +96,82 @@ test.each(['chat', 'responses'])(
   20_000,
 );
 
-test.each(['chat', 'responses'])(
-  'background summaries start only after exploration, using a separate model (%s)',
-  async (api) => {
-    const run = await factory(api, 'Export issues', 'observer');
-    try {
-      await vi.waitFor(
-        () => {
-          expect(run.stderr()).toMatch(/Which export format\?[\s\S]*\n>\n$/);
-        },
-        { timeout: 10_000 },
+test('background summaries start only after exploration, using a separate model', async () => {
+  const run = await factory('responses', 'Export issues', 'observer');
+  try {
+    await vi.waitFor(
+      () => {
+        expect(run.stderr()).toMatch(/Which export format\?[\s\S]*\n>\n$/);
+      },
+      { timeout: 10_000 },
+    );
+    const beforeAnswer = run.stderr();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1_100);
+    });
+    expect(run.stderr()).toBe(beforeAnswer);
+    expect(run.stderr()).not.toContain('Observer:');
+    expect(
+      await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+    ).not.toContain('"role":"observer"');
+    run.child.stdin.write('CSV\n');
+    await vi.waitFor(
+      () => {
+        expect(run.stderr()).toContain('Start implementation?');
+      },
+      { timeout: 10_000 },
+    );
+    expect(run.stderr()).not.toContain('Observer:');
+    expect(
+      await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+    ).not.toContain('"role":"observer"');
+    run.child.stdin.end('Start\n');
+    expect(await run.exit, run.stderr()).toEqual([0, null]);
+    expect(run.stderr()).toContain(
+      'Observer: Current delivery stage: Implementing (attempt 1).',
+    );
+    const contexts = (
+      await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
+    )
+      .trim()
+      .split('\n')
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            role: string;
+            payload: Parameters<SummarizeProgress>[0];
+          },
       );
-      const beforeAnswer = run.stderr();
-      await new Promise((resolve) => {
-        setTimeout(resolve, 1_100);
+    const observations = contexts.filter(({ role }) => role === 'observer');
+    expect(observations.length).toBeGreaterThan(0);
+    expect(
+      contexts.findIndex(({ role }) => role === 'observer'),
+    ).toBeGreaterThan(
+      contexts.findIndex(({ role }) => role === 'implementation'),
+    );
+    for (const { payload } of observations) {
+      expect(payload.stage).not.toBe('Exploring');
+      expect(payload.events).not.toContainEqual({
+        kind: 'stage',
+        message: 'Exploring',
       });
-      expect(run.stderr()).toBe(beforeAnswer);
-      expect(run.stderr()).not.toContain('Observer:');
-      expect(
-        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
-      ).not.toContain('"role":"observer"');
-      run.child.stdin.write('CSV\n');
-      await vi.waitFor(
-        () => {
-          expect(run.stderr()).toContain('Start implementation?');
-        },
-        { timeout: 10_000 },
+      expect(payload.events).not.toContainEqual(
+        expect.objectContaining({ kind: 'tool', agent: 'exploration' }),
       );
-      expect(run.stderr()).not.toContain('Observer:');
-      expect(
-        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
-      ).not.toContain('"role":"observer"');
-      run.child.stdin.end('Start\n');
-      expect(await run.exit, run.stderr()).toEqual([0, null]);
-      expect(run.stderr()).toContain(
-        'Observer: Current delivery stage: Implementing (attempt 1).',
+      expect(payload.events).not.toContainEqual(
+        expect.objectContaining({ kind: 'reasoning', agent: 'exploration' }),
       );
-      const contexts = (
-        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8')
-      )
-        .trim()
-        .split('\n')
-        .map(
-          (line) =>
-            JSON.parse(line) as {
-              role: string;
-              payload: Parameters<SummarizeProgress>[0];
-            },
-        );
-      const observations = contexts.filter(({ role }) => role === 'observer');
-      expect(observations.length).toBeGreaterThan(0);
-      expect(
-        contexts.findIndex(({ role }) => role === 'observer'),
-      ).toBeGreaterThan(
-        contexts.findIndex(({ role }) => role === 'implementation'),
-      );
-      for (const { payload } of observations) {
-        expect(payload.stage).not.toBe('Exploring');
-        expect(payload.events).not.toContainEqual({
-          kind: 'stage',
-          message: 'Exploring',
-        });
-        expect(payload.events).not.toContainEqual(
-          expect.objectContaining({ kind: 'tool', agent: 'exploration' }),
-        );
-        expect(payload.events).not.toContainEqual(
-          expect.objectContaining({ kind: 'reasoning', agent: 'exploration' }),
-        );
-      }
-      expect(run.stderr()).not.toContain('Implement this brief?');
-      expect(run.stderr()).not.toContain('test-key');
-      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
-        'ready',
-      );
-      await run.assertStopped();
-    } finally {
-      await run.clean();
     }
-  },
-  20_000,
-);
+    expect(run.stderr()).not.toContain('Implement this brief?');
+    expect(run.stderr()).not.toContain('test-key');
+    expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+      'ready',
+    );
+    await run.assertStopped();
+  } finally {
+    await run.clean();
+  }
+}, 20_000);
 
 test.each([
   ['observer-thinking', true],
@@ -260,27 +256,23 @@ test('debug cancellation closes streaming output and stops the owned router', as
   }
 }, 20_000);
 
-test.each(['chat', 'responses'])(
-  'empty observer summaries stay silent without disabling delivery (%s)',
-  async (api) => {
-    const run = await factory(api, 'Export issues', 'observer-silent');
-    try {
-      run.child.stdin.end('CSV\nStart\n');
-      expect(await run.exit, run.stderr()).toEqual([0, null]);
-      expect(
-        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
-      ).toContain('"role":"observer"');
-      expect(run.stderr()).not.toContain('Observer:');
-      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
-        'ready',
-      );
-      await run.assertStopped();
-    } finally {
-      await run.clean();
-    }
-  },
-  20_000,
-);
+test('empty observer summaries stay silent without disabling delivery', async () => {
+  const run = await factory('responses', 'Export issues', 'observer-silent');
+  try {
+    run.child.stdin.end('CSV\nStart\n');
+    expect(await run.exit, run.stderr()).toEqual([0, null]);
+    expect(
+      await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+    ).toContain('"role":"observer"');
+    expect(run.stderr()).not.toContain('Observer:');
+    expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+      'ready',
+    );
+    await run.assertStopped();
+  } finally {
+    await run.clean();
+  }
+}, 20_000);
 
 test.each([true, false])(
   'observer failure/disable never stops delivery or leaks credentials (enabled=%s)',
@@ -346,27 +338,28 @@ test.each(['chat', 'responses'])(
   20_000,
 );
 
-test.each(['normal', 'no-encrypted-reasoning'])(
-  'stateless Responses replays tool history without stored item references (%s)',
-  async (mode) => {
-    const run = await factory('responses', 'Export issues', mode, false);
-    try {
-      run.child.stdin.end('CSV\nStart\n');
-      expect(await run.exit, run.stderr()).toEqual([0, null]);
-      expect(run.stderr()).toContain('Which export format?');
-      expect(run.stderr()).not.toContain('Implement this brief?');
-      expect(run.stderr()).not.toContain('Offline reasoning summary.');
-      expect(run.stderr()).not.toContain('encrypted-test-');
-      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
-        'ready',
-      );
-      await run.assertStopped();
-    } finally {
-      await run.clean();
-    }
-  },
-  20_000,
-);
+test('stateless Responses replays tool history when encrypted reasoning is unavailable', async () => {
+  const run = await factory(
+    'responses',
+    'Export issues',
+    'no-encrypted-reasoning',
+    false,
+  );
+  try {
+    run.child.stdin.end('CSV\nStart\n');
+    expect(await run.exit, run.stderr()).toEqual([0, null]);
+    expect(run.stderr()).toContain('Which export format?');
+    expect(run.stderr()).not.toContain('Implement this brief?');
+    expect(run.stderr()).not.toContain('Offline reasoning summary.');
+    expect(run.stderr()).not.toContain('encrypted-test-');
+    expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+      'ready',
+    );
+    await run.assertStopped();
+  } finally {
+    await run.clean();
+  }
+}, 20_000);
 
 test('EOF fails without inventing an answer or preparing a repository', async () => {
   const run = await factory('responses', 'Export issues');
@@ -392,8 +385,6 @@ test('EOF fails without inventing an answer or preparing a repository', async ()
 
 test.each([
   ['chat', 'implementation-blocked'],
-  ['responses', 'implementation-blocked'],
-  ['chat', 'implementation-blocked-with-plan'],
   ['responses', 'implementation-blocked-with-plan'],
 ])(
   'implementation reports genuine blockers without prompting after plan confirmation (%s, %s)',

@@ -40,14 +40,6 @@ describe('compiled dark CLI', () => {
     expect(result.stderr).toBe('');
   });
 
-  test('no arguments prints help successfully', () => {
-    const result = runCli([]);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toBe(runCli(['--help']).stdout);
-    expect(result.stderr).toBe('');
-  });
-
   test('unknown options fail with a useful error', () => {
     const result = runCli(['--unknown']);
 

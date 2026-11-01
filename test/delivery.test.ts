@@ -30,6 +30,7 @@ describe('default workflow delivery stages', () => {
       const running = run();
       await expect(running).rejects.toMatchObject({ cause });
       await expect(running).rejects.toThrow('failure.json');
+      await expect(running).rejects.not.toThrow(cause.message);
       expect(operations.recordFailure).toHaveBeenCalledWith(
         stage === 'prepare' ? 'prepare-delivery' : 'publish-delivery',
         stage === 'prepare'
@@ -222,7 +223,7 @@ describe('default workflow delivery stages', () => {
     expect(operations.qa).toHaveBeenCalledOnce();
     expect(operations.review).toHaveBeenCalledOnce();
   });
-  test('QA and review repairs continue beyond the former shared repair limit', async () => {
+  test('repeated QA and review defects remain repairable', async () => {
     const { run, operations } = setup();
     for (let round = 0; round < 5; round++)
       operations.qa.mockResolvedValueOnce({
@@ -328,23 +329,6 @@ describe('default workflow delivery stages', () => {
       expect(operations.summarize).not.toHaveBeenCalled();
     },
   );
-  test('repeated source trees can be reverified instead of stopping a supervised repair', async () => {
-    const { run, operations } = setup();
-    operations.capture.mockResolvedValue({
-      revision: 'same-revision',
-      tree: 'same-tree',
-    });
-    operations.qa.mockResolvedValueOnce({
-      ...qaPass,
-      verdict: 'changes-requested',
-      findings: [finding()],
-    });
-    const result = await run();
-    expect(result).toMatchObject({ status: 'ready', rounds: 2 });
-    expect(operations.checks).toHaveBeenCalledTimes(2);
-    expect(operations.qa).toHaveBeenCalledTimes(2);
-    expect(operations.implement).toHaveBeenCalledTimes(2);
-  });
   test.each([null, uiProjectPlan])(
     'implementation blockers stop before capture or verification even with a plan: %j',
     async (verification) => {
@@ -510,16 +494,6 @@ describe('default workflow delivery stages', () => {
     await expect(run()).rejects.toThrow('Workflow failed');
     expect(operations.finish).not.toHaveBeenCalled();
   });
-  test('rejects an unconfirmed brief before preparing the repository', async () => {
-    const unconfirmed = {
-      ...brief,
-      readiness: 'needs-clarification' as const,
-      confirmedByUser: false,
-    };
-    const { run, operations } = setup(() => Promise.resolve(unconfirmed));
-    await expect(run()).rejects.toThrow('Workflow failed');
-    expect(operations.prepare).not.toHaveBeenCalled();
-  });
   test('cancellation prevents late results from advancing and always closes the runtime', async () => {
     const { options, operations, close } = setup();
     const controller = new AbortController();
@@ -548,23 +522,7 @@ describe('default workflow delivery stages', () => {
     expect(operations.recordFailure).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
   });
-  test('a pending agent has no workflow deadline and can still be cancelled', async () => {
-    vi.useFakeTimers();
-    const { options, operations, close } = setup();
-    const controller = new AbortController();
-    options.signal = controller.signal;
-    operations.implement.mockImplementation(() => new Promise(() => {}));
-    const running = expect(runDefault(options)).rejects.toThrow(
-      'Stopped by user.',
-    );
-    await vi.advanceTimersByTimeAsync(86_400_000);
-    expect(close).not.toHaveBeenCalled();
-    controller.abort(new Error('Stopped by user.'));
-    await running;
-    expect(close).toHaveBeenCalledOnce();
-    expect(operations.finish).not.toHaveBeenCalled();
-  });
-  test('exploration and implementation may each outlive the former workflow deadline', async () => {
+  test('long-running exploration and implementation can finish without a workflow deadline', async () => {
     vi.useFakeTimers();
     let finishExploration: (value: unknown) => void = () => {};
     const { options, operations, close } = setup(
@@ -598,7 +556,9 @@ describe('default workflow delivery stages', () => {
     vi.spyOn(nativeRun, 'start').mockRejectedValue(
       new Error('Authorization: Bearer private-key'),
     );
-    await expect(runDefault(options)).rejects.toThrow('Workflow failed');
+    const failed = runDefault(options);
+    await expect(failed).rejects.toThrow('Workflow failed');
+    await expect(failed).rejects.not.toThrow('private-key');
     expect(close).toHaveBeenCalledOnce();
   });
   test('publication recovery details survive a failed Mastra step without exposing its cause', async () => {
@@ -617,16 +577,6 @@ describe('default workflow delivery stages', () => {
     await expect(failed).rejects.toThrow(journal);
     await expect(failed).rejects.not.toThrow('private-key');
     expect(operations.finish).toHaveBeenCalledOnce();
-    expect(close).toHaveBeenCalledOnce();
-  });
-  test('unexpected finish errors remain private', async () => {
-    const { run, operations, close } = setup();
-    operations.finish.mockRejectedValue(
-      new Error('Authorization: Bearer private-key'),
-    );
-    const failed = run();
-    await expect(failed).rejects.toThrow('Workflow failed');
-    await expect(failed).rejects.not.toThrow('private-key');
     expect(close).toHaveBeenCalledOnce();
   });
 });

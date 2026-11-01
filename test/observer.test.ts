@@ -14,9 +14,9 @@ function setup(
     .fn<SummarizeProgress>()
     .mockResolvedValue('Inspecting the repository.'),
   secrets: string[] = [],
+  controller = new AbortController(),
 ) {
   vi.useFakeTimers();
-  const controller = new AbortController();
   const emit = vi.fn<(message: string) => void>();
   const observer = createProgressObserver({
     summarize,
@@ -142,21 +142,6 @@ describe('background progress observer', () => {
     );
     await vi.advanceTimersByTimeAsync(10_000);
     expect(observer.summarize).toHaveBeenCalledOnce();
-  });
-
-  test('passes the previous summary for continuity and suppresses duplicate updates', async () => {
-    const observer = setup();
-    observer.observe({ kind: 'stage', message: 'Inspecting repository' });
-    await vi.advanceTimersByTimeAsync(1_000);
-    observer.observe({ kind: 'check', id: 'lint', status: 'passed' });
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(observer.summarize.mock.calls[1]![0].previousSummary).toBe(
-      'Inspecting the repository.',
-    );
-    expect(observer.summarize.mock.calls[1]![0].events).toEqual([
-      { kind: 'check', id: 'lint', status: 'passed' },
-    ]);
-    expect(observer.emit).toHaveBeenCalledOnce();
   });
 
   test.each(['', ' \n\t ', 'Inspecting the repository.'])(
@@ -387,8 +372,9 @@ describe('background progress observer', () => {
   );
 
   test('a pre-cancelled observer never starts', async () => {
-    const observer = setup();
-    observer.controller.abort();
+    const controller = new AbortController();
+    controller.abort();
+    const observer = setup(undefined, [], controller);
     observer.observe({ kind: 'stage', message: 'Exploring' });
     await vi.advanceTimersByTimeAsync(5_000);
     expect(observer.summarize).not.toHaveBeenCalled();

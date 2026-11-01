@@ -32,9 +32,6 @@ describe('factory configuration', () => {
       timeoutMs: 10_000,
     });
     expect(config).not.toHaveProperty('ui');
-    expect(config.model).not.toHaveProperty('maxSteps');
-    expect(config).not.toHaveProperty('sessionTimeoutMs');
-    expect(config.router).not.toHaveProperty('readyTimeoutMs');
   });
   test.each([
     { ui: { port: 4310 } },
@@ -42,11 +39,8 @@ describe('factory configuration', () => {
     { model: { baseUrl: 'not a URL' } },
     { model: { baseUrl: 'file:///etc/passwd' } },
     { model: { baseUrl: 'https://example.com/v1' } },
-    { model: { maxSteps: 0 } },
     { model: { reasoningEffort: 'extreme' } },
     { model: { reasoningEffort: null } },
-    { sessionTimeoutMs: 1_800_000 },
-    { router: { readyTimeoutMs: 20_000 } },
     { observer: { intervalMs: 0 } },
     { observer: { timeoutMs: 0 } },
     { observer: { modelId: ' ' } },

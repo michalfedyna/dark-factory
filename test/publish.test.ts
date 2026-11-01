@@ -11,7 +11,6 @@ import {
   PublicationError,
   publishPullRequest,
 } from '../src/delivery/publication.js';
-import { renderPullRequest } from '../src/delivery/pull-request.js';
 import type { DeliveryState } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
 import { implementation, projectPlan, png } from './fixtures/delivery.js';
@@ -154,6 +153,16 @@ async function setup() {
 
 test('publishes only verified code and evidence, links screenshots, and creates a draft PR', async () => {
   const options = await setup();
+  const round = options.state.history[0]!;
+  round.evidence.push({
+    id: 'check',
+    revision: round.revision,
+    kind: 'check',
+    targetId: null,
+    operation: 'test',
+    exitCode: 0,
+    path: 'private.json',
+  });
   await expect(publishPullRequest(options)).resolves.toBe(
     'https://github.com/example/project/pull/12',
   );
@@ -189,6 +198,15 @@ test('publishes only verified code and evidence, links screenshots, and creates 
     `https://github.com/example/project/raw/${head}/.darkfactory/evidence/test-run/r1-e1.png`,
   );
   expect(body).toContain(options.state.history[0]!.revision);
+  expect(body).toContain(options.state.baseRevision);
+  expect(body).toContain('## Summary');
+  expect(body).toContain('Add CSV export.');
+  expect(body).toContain('## Verification');
+  expect(body).toContain('Tests passed.');
+  expect(body).toContain('test: pass (`check`)');
+  expect(body).toContain('## Limitations');
+  expect(body).toContain('No additional limitations reported.');
+  expect(body).toContain('draft PR for human review');
   expect(body).not.toContain(options.directory);
   expect(
     await readFile(
@@ -218,48 +236,6 @@ test('publishes only verified code and evidence, links screenshots, and creates 
   ).toBe('');
 });
 
-test('named PR sections preserve the existing Markdown format', async () => {
-  const { state } = await setup();
-  const round = state.history[0]!;
-  const screenshots = [...round.evidence];
-  round.evidence.push({
-    id: 'check',
-    revision: round.revision,
-    kind: 'check',
-    targetId: null,
-    operation: 'test',
-    exitCode: 0,
-    path: 'private.json',
-  });
-  expect(
-    renderPullRequest(
-      state,
-      screenshots,
-      () => 'https://example.com/image.png',
-    ),
-  ).toBe(`## Summary
-- Add CSV export.
-
-## Verification
-- Tests passed.
-
-Code candidate: \`${round.revision}\`
-Base: \`${state.baseRevision}\`
-Implementation attempts: 1; captured rounds: 1
-QA: pass; review: pass.
-
-- test: pass (\`check\`)
-
-## Screenshots
-### web (r1-e1)
-![r1-e1](https://example.com/image.png)
-
-## Limitations
-- No additional limitations reported.
-
-This is a draft PR for human review. CI and GitHub reviews have not been verified. Evidence is added in a metadata-only commit after the tested code candidate.
-`);
-});
 test('failed gates cannot call push or GitHub even when invoked directly', async () => {
   const options = await setup();
   options.state.status = 'blocked';
