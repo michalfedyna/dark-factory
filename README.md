@@ -75,6 +75,12 @@ progress summaries, sandbox isolation, and Figma access.
 Environment variables override `.env` values. The config location does not select
 the target repository.
 
+Documentation searches use the configured model for one extra, tool-free cleanup
+call per nonempty search. It cleans titles and snippets into plain text without
+changing source URLs or ranking. If cleanup fails or exceeds 30 seconds, search
+returns the parsed results with a cleanup error. Search snippets are not verified
+documentation; the documentation agent still reads the relevant source pages.
+
 ## Safety
 
 Project commands run on your host by default. Use trusted repositories, test

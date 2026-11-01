@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 // Identify roles from their real data contracts, never from instruction wording.
 export function requestRole({ payload }) {
+  if (payload?.searchResults) return 'search-cleanup';
   if (payload?.library) return 'documentation';
   if (payload?.events) return 'observer';
   if (payload?.patch !== undefined) return 'review';
@@ -18,6 +19,16 @@ export function scenarioReply(request, resultPath, mode) {
   const role = requestRole(request);
   const { payload, toolResults } = request;
   const prefix = payload?.evidence?.[0]?.id.split('-e')[0] ?? 'r1';
+  if (role === 'search-cleanup')
+    return {
+      result: {
+        results: payload.searchResults.map(({ index, title, snippet }) => ({
+          index,
+          title: title.replace(' docs', ' documentation'),
+          snippet,
+        })),
+      },
+    };
   if (role === 'documentation') {
     const actions = [
       {

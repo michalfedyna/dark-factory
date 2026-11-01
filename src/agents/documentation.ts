@@ -1,10 +1,11 @@
 import { Agent } from '@mastra/core/agent';
 import type { FactoryConfig } from '../config/schema.js';
 import type { Observe } from '../contracts/progress.js';
-import { searchWebTool } from '../tools/search-web.js';
+import { createSearchWebTool } from '../tools/search-web.js';
 import { webFetchTool } from '../tools/web-fetch.js';
 import { createActivityHooks } from './activity.js';
 import { createModelConfig } from './model.js';
+import { createSearchCleanup } from './search-cleanup.js';
 
 const instructions = `You are the read-only documentation subagent for DarkFactory's implementation and UI agents. Research the requested library APIs and return a compact, task-specific guide, not an implementation or a broad tutorial.
 
@@ -31,6 +32,7 @@ export function createDocumentation(
   observe?: Observe,
 ) {
   const modelConfig = createModelConfig(model, apiKey);
+  const searchCleanup = createSearchCleanup(model, apiKey);
   return new Agent({
     id: 'documentation',
     name: 'Documentation',
@@ -43,6 +45,9 @@ export function createDocumentation(
       toolCallConcurrency: 1,
       hooks: createActivityHooks('documentation', observe),
     },
-    tools: { search_web: searchWebTool, web_fetch: webFetchTool },
+    tools: {
+      search_web: createSearchWebTool(searchCleanup.clean),
+      web_fetch: webFetchTool,
+    },
   });
 }

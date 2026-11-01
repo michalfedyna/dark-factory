@@ -1,11 +1,6 @@
 import { DomUtils, parseDocument } from 'htmlparser2';
 import type { ReadableStreamDefaultReader } from 'node:stream/web';
-
-interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-}
+import type { SearchResult } from '../../contracts/web-search.js';
 
 const searchEndpoint = 'https://html.duckduckgo.com/html/';
 const maxResponseBytes = 1_000_000;
@@ -53,7 +48,7 @@ function parseResults(html: string, maxResults: number): SearchResult[] {
     );
     const url = link?.attribs.href ? resultUrl(link.attribs.href) : null;
     const title = link
-      ? DomUtils.textContent(link).replace(/\s+/g, ' ').trim().slice(0, 240)
+      ? DomUtils.innerText(link).replace(/\s+/g, ' ').trim().slice(0, 240)
       : '';
     if (!url || !title || seen.has(url)) continue;
     const snippet = DomUtils.findOne(
@@ -64,7 +59,7 @@ function parseResults(html: string, maxResults: number): SearchResult[] {
       title,
       url,
       snippet: snippet
-        ? DomUtils.textContent(snippet)
+        ? DomUtils.innerText(snippet)
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 1_000)

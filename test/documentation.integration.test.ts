@@ -105,12 +105,20 @@ test.each([
         request.includes('"name":"search_web"'),
       );
       expect(childRequests).toHaveLength(3);
+      expect(childRequests.at(-1)).toContain('Widgets documentation');
       for (const request of childRequests) {
         expect(request).toContain('widgets');
         expect(request).not.toContain('Private task details');
         expect(request).not.toContain('mastra_workspace_');
         expect(request).not.toContain('agent-documentation');
       }
+      const cleanupRequests = requests.filter((request) =>
+        request.includes('\\"searchResults\\"'),
+      );
+      expect(cleanupRequests).toHaveLength(1);
+      expect(cleanupRequests[0]).not.toContain('Private task details');
+      expect(cleanupRequests[0]).not.toContain('mastra_workspace_');
+      expect(cleanupRequests[0]).not.toContain('"name":"search_web"');
       const parentReply = requests.at(-1)!;
       expect(parentReply).toContain('import createWidget');
       expect(parentReply).not.toContain('Widgets docs');

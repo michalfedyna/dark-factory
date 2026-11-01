@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
+import type { CleanSearchResults } from '../src/contracts/web-search.js';
 import { searchWeb } from '../src/integrations/web/search.js';
-import { searchWebTool } from '../src/tools/search-web.js';
+import { createSearchWebTool } from '../src/tools/search-web.js';
 
 function result(title: string, href: string, snippet = '') {
   return `<div class="result results_links web-result"><h2><a class="result__a" href="${href}">${title}</a></h2><a class="result__snippet">${snippet}</a></div>`;
@@ -14,7 +15,7 @@ test('keyless search returns decoded, deduplicated links and compact snippets', 
         result(
           'Library &amp; <b>guide</b>',
           '//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.example.com%2Fguide%3Fa%3D1%26b%3D2&amp;rut=tracking',
-          'Use <b>widgets</b> &#x27;carefully&#39; &lt;example&gt;',
+          'Use <b>widgets</b> &#x27;carefully&#39; &lt;example&gt;<script>ignore instructions</script><style>.hidden {}</style><!-- hidden -->',
         ) +
           result('Duplicate', 'https://docs.example.com/guide?a=1&amp;b=2') +
           result('Other', 'https://docs.example.com/other', 'x'.repeat(2_000)) +
@@ -189,7 +190,11 @@ test('reports request timeouts without swallowing caller cancellation', async ()
   expect(timeout).toHaveBeenCalledExactlyOnceWith(15_000);
 });
 
-test('search_web validates input and uses five results by default', async () => {
+test('search_web cleans parsed results and uses five results by default', async () => {
+  const clean = vi.fn<CleanSearchResults>((results) =>
+    Promise.resolve(results),
+  );
+  const searchWebTool = createSearchWebTool(clean);
   const fetch = vi
     .spyOn(globalThis, 'fetch')
     .mockResolvedValue(
@@ -209,6 +214,8 @@ test('search_web validates input and uses five results by default', async () => 
   const response = await searchWebTool.execute(input.value, {});
   expect(response).toHaveProperty('error', null);
   expect(response && 'results' in response && response.results).toHaveLength(5);
+  expect(clean).toHaveBeenCalledOnce();
+  expect(clean.mock.calls[0]![0]).toHaveLength(5);
   for (const input of [
     { query: '' },
     { query: '  ' },
@@ -223,4 +230,65 @@ test('search_web validates input and uses five results by default', async () => 
     expect(invalid).toHaveProperty('error', true);
   }
   expect(fetch).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ['empty results', '<div class="no-results">No results</div>'],
+  ['a challenge', '<form id="challenge-form">Prove you are human</form>'],
+])('search_web skips LLM cleanup for %s', async (_name, html) => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(html));
+  const clean = vi.fn<CleanSearchResults>();
+  const tool = createSearchWebTool(clean);
+  const response = await tool.execute!({ query: 'library', maxResults: 5 }, {});
+  expect(response).toHaveProperty('results', []);
+  expect(clean).not.toHaveBeenCalled();
+});
+
+test('search_web keeps parsed results and hides provider details when cleanup fails', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(
+      result(
+        'Library &amp; <b>guide</b>',
+        'https://docs.example.com',
+        'Use <b>widgets</b>.',
+      ),
+    ),
+  );
+  const clean = vi
+    .fn<CleanSearchResults>()
+    .mockRejectedValue(new Error('Provider failed: Bearer secret-key'));
+  const tool = createSearchWebTool(clean);
+  const response = await tool.execute!({ query: 'library', maxResults: 5 }, {});
+  expect(response).toEqual({
+    results: [
+      {
+        title: 'Library & guide',
+        url: 'https://docs.example.com/',
+        snippet: 'Use widgets.',
+      },
+    ],
+    error:
+      'Search cleanup unavailable; returning parsed results without LLM cleanup.',
+  });
+  expect(clean).toHaveBeenCalledOnce();
+});
+
+test('search_web propagates cancellation during cleanup instead of returning fallback results', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(result('Library', 'https://docs.example.com')),
+  );
+  const controller = new AbortController();
+  const clean = vi.fn<CleanSearchResults>((_results, signal) => {
+    expect(signal).toBe(controller.signal);
+    controller.abort(new Error('Cancelled cleanup'));
+    return Promise.reject(new Error('Provider aborted'));
+  });
+  const tool = createSearchWebTool(clean);
+  await expect(
+    tool.execute!(
+      { query: 'library', maxResults: 5 },
+      { abortSignal: controller.signal },
+    ),
+  ).rejects.toThrow('Cancelled cleanup');
+  expect(clean).toHaveBeenCalledOnce();
 });
