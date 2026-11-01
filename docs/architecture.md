@@ -53,6 +53,9 @@ CLIProxyAPI remains the model transport; it is not a user interface.
    `ask` with a validated question and awaits the real user's answer. In a TTY,
    Clack offers choices plus Other or a text prompt. Non-TTY input uses a single
    buffered line reader for the whole run.
+   Its scoped Figma preview tool can export linked screens as PNGs before
+   confirmation, including links supplied in real answers. Whole-file discovery
+   returns only screen names and IDs; detailed design inspection stays with the UI agent.
 5. Validate the answer and continue the same agent run with its tool result.
    Questions execute sequentially. EOF, Escape, and cancellation never produce
    invented answers or implicit confirmation.
@@ -63,7 +66,7 @@ CLIProxyAPI remains the model transport; it is not a user interface.
    pre-implementation command plan is required. Implementation owns dependency
    setup and app scaffolding. Before implementation, `figma-ui` conditionally runs
    the UI-only agent when the original issue or approved brief contains supported
-   Figma links. `delivery/figma-sources.ts` normalizes references; the REST tool is
+   Figma links. `integrations/figma/sources.ts` normalizes references; the REST tool is
    scoped to these sources and records successful reads. The handoff and scaffold
    enter implementation together. Implementation returns actual check commands and web/native
    targets for its candidate. Run checks, QA, and review in a supervised repair cycle.
@@ -89,7 +92,7 @@ bookkeeping, and round history are not included in initial agent task payloads.
 
 | Agent             | Direct task input                                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploration       | Original issue text; real user answers arrive through its own ask tool.                                                                                                                  |
+| Exploration       | Original issue text and real ask answers; scoped Figma PNG previews and lightweight screen names/IDs, without repository access or detailed specifications.                              |
 | Figma UI          | Approved issue task, allowed paths and canonical design sources; a scoped REST tool and separate Mastra workspace in the implementation checkout.                                        |
 | Implementation    | Issue task, repository-wide non-protected paths, previous candidate's check commands (initially empty); latest repair findings, failed criterion notes, and failed check-log tails only. |
 | Browser/mobile QA | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence metadata without file paths.                                        |
@@ -106,7 +109,12 @@ Assumptions stay explicitly labeled as unverified.
 Implementation additionally receives the validated Figma handoff when present.
 `contracts/figma.ts` defines sources and role results; `integrations/figma/client.ts`
 owns fixed read-only REST endpoints and authentication; `tools/figma.ts` owns source
-scoping, multimodal previews and source-read tracking. The environment lazily owns
+inspection for the UI agent. `tools/figma-access.ts` owns session-scoped source
+allowlists, credential use and read tracking; `tools/figma-preview.ts` limits
+exploration to PNG exports and screen discovery. `integrations/figma/images.ts`
+downloads and validates PNGs without credentials. `agents/exploration-preview.ts`
+uses Mastra's outbound-request processor to lift PNGs into image-capable user turns
+for Chat transports without mutating conversation history. The environment lazily owns
 the Figma workspace and sandbox, stops them after the stage and destroys them at
 run cleanup. Credentials stay outside workflow state, model context and sandbox
 environments. [Figma behavior](figma.md) describes the UI-only role boundary and limits.

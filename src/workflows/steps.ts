@@ -15,7 +15,7 @@ import {
 import { issueBriefSchema } from '../contracts/issue.js';
 import type { DeliveryOperations } from '../delivery/operations.js';
 import type { DeliveryStep } from '../delivery/steps.js';
-import { findFigmaSources } from '../delivery/figma-sources.js';
+import { findFigmaSources } from '../integrations/figma/sources.js';
 
 export const inputSchema = z.strictObject({ issue: issueInputSchema });
 export const requestContextSchema = z.object({

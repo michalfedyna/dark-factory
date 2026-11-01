@@ -28,8 +28,12 @@ export async function startFactory(
   );
   const router = await startRouter(config, apiKey, directory, factorySignal);
   try {
-    const explore = createExploration(config.model, apiKey, options.debug);
     const figmaToken = process.env[config.figma.tokenEnv];
+    const explore = createExploration(config.model, apiKey, {
+      figma: config.figma,
+      ...(figmaToken ? { figmaToken } : {}),
+      ...(options.debug ? { debug: options.debug } : {}),
+    });
     const observerAgent =
       config.observer.enabled && !options.debug
         ? createObserver(config.model, config.observer, apiKey)

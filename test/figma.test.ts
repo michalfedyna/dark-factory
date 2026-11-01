@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { findFigmaSources } from '../src/delivery/figma-sources.js';
+import { findFigmaSources } from '../src/integrations/figma/sources.js';
 import { scaffoldUi } from '../src/delivery/steps.js';
 import { implementationContext } from '../src/delivery/agent-context.js';
 import {

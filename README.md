@@ -166,6 +166,9 @@ presentational components and design-system code in the same checkout. Implement
 receives its handoff and owns all functional wiring and subsequent repairs. Set
 `FIGMA_ACCESS_TOKEN` to read designs through REST; no token is needed for unlinked
 issues. This does not edit Figma files. See [Figma setup and limits](docs/figma.md).
+During exploration, the agent can already view linked screens as PNGs, including
+links supplied in follow-up answers. It keeps questions product-focused; detailed
+design specifications remain the UI agent's responsibility.
 Implementation supplies a validated verification plan on every candidate, with at
 least one meaningful deterministic check and all required UI targets. No delivery
 config is needed. Project sandboxes allow network access for dependency setup and
@@ -247,6 +250,8 @@ No proxy configuration change is needed.
 ### Agent context
 
 Agents receive role-specific inputs, not the full workflow state or round history.
+Exploration can view Figma PNG previews and lightweight screen names/IDs, but has no
+repository access or detailed design-inspection tools.
 The Figma agent gets the approved task, allowed paths and canonical design sources.
 Implementation gets its validated UI handoff when present, the approved task, allowed paths, check commands, and only the
 latest repair findings, failed criterion notes, and failed check-log tails.

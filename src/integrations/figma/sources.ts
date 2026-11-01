@@ -1,6 +1,6 @@
-import type { FigmaSource } from '../contracts/figma.js';
+import type { FigmaSource } from '../../contracts/figma.js';
 
-/** Keep design references even when exploration leaves them out of its brief. */
+/** Normalize user-supplied design references for scoped REST access. */
 export function findFigmaSources(...inputs: string[]): FigmaSource[] {
   const sources = new Map<string, FigmaSource>();
   for (const input of inputs) {

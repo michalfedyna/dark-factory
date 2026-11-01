@@ -353,6 +353,53 @@ export function scenarioReply(request, resultPath, mode) {
         limitations: ['UI automation is stubbed in this offline test.'],
       },
     };
+  if (role === 'exploration' && mode.startsWith('exploration-figma')) {
+    const source = 'https://www.figma.com/design/DesignKey/Screen?node-id=1-2';
+    const actions = [
+      ...(mode === 'exploration-figma-follow-up'
+        ? [
+            {
+              name: 'ask',
+              args: {
+                question: 'Which Figma design?',
+                context: '',
+                options: [],
+              },
+            },
+          ]
+        : []),
+      { name: 'figma', args: { source, operation: 'preview' } },
+      {
+        name: 'ask',
+        args: {
+          question:
+            mode === 'exploration-figma-unavailable'
+              ? 'The design could not be previewed. Describe the screen or stop for now?'
+              : 'Confirm the export screen?',
+          context: '',
+          options: [],
+        },
+      },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    const brief = JSON.parse(readFileSync(resultPath, 'utf8'));
+    return {
+      result: {
+        ...brief,
+        decisions: [
+          ...brief.decisions,
+          { question: 'Design reference?', answer: source },
+        ],
+        ...(mode === 'exploration-figma-unavailable'
+          ? {
+              readiness: 'needs-clarification',
+              confirmedByUser: false,
+              openQuestions: ['The design could not be previewed.'],
+            }
+          : {}),
+      },
+    };
+  }
   return toolResults === 0
     ? {
         tool: {

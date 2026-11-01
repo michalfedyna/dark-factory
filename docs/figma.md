@@ -1,4 +1,4 @@
-# Figma UI agent
+# Figma design access
 
 Include a Figma link in an issue to run the UI agent after exploration confirmation
 and before implementation. Links in the approved brief also count, including ones
@@ -35,6 +35,29 @@ Never commit tokens to configuration or source files.
 
 ## Scope and handoff
 
+### Exploration
+
+Before confirmation, exploration uses PNG exports to understand the linked screens
+and ask short product questions. Node links render directly; whole-file links first
+return only top-level screen IDs and names so it can choose relevant PNGs. There is
+no detailed node, layout, style, token or component inspection in this stage; that
+belongs to the UI agent.
+
+Exploration can preview links from the original issue and real follow-up answers.
+Each agent session has its own source allowlist. Designs cannot grant access to
+other files. The preview tool has no repository, filesystem, shell or Figma write
+access. PNGs are downloaded without credentials from supported Figma CDN hosts,
+validated, limited to 10 MB each, and sent as images, not textual URLs. Chat
+transports use a Mastra request processor to place them in image-capable user
+messages; Responses keeps native multimodal tool results.
+
+If access is unavailable, exploration explains the limitation and asks for missing
+product information rather than inventing design details or asking for credentials
+in chat. Essential unanswered questions still prevent confirmation. Inspection
+results are not candidate verification evidence.
+
+### UI scaffolding
+
 The Figma agent has a separate run-owned Mastra workspace and sandbox in the same
 checkout used by implementation. It can install UI dependencies and create a minimal
 app scaffold when needed. Its role is limited to:
@@ -62,8 +85,9 @@ logs can include design data and temporary asset URLs; keep them private.
 
 ## REST access and limits
 
-The `figma` Mastra tool makes only GET requests to `https://api.figma.com/v1`.
-It accepts exact approved source URLs rather than arbitrary URLs, endpoints or
+Both roles expose a `figma` Mastra tool with different capabilities. REST calls
+use only GET requests to `https://api.figma.com/v1`. The tools accept user-supplied
+source URLs, normalized against the session allowlist, rather than arbitrary endpoints or
 headers. Redirects are rejected. The token stays in controller-owned request headers;
 it is not passed to agent context or project sandbox environments.
 
@@ -73,13 +97,13 @@ parameters are removed. `version-id` pins file, node and rendered-image requests
 library metadata, image fills and variables endpoints return current data only.
 Community, FigJam and non-file links are not supported.
 
-The tool reads file trees, nodes, PNG/SVG renders, image fills, published components,
+The UI agent's full tool reads file trees, nodes, PNG/SVG renders, image fills, published components,
 component sets/styles and local variables. PNG renders are available as model image
 content. Whole-file discovery defaults to depth 2; focused node reads can fetch full
 subtrees. Needed export assets should be downloaded into the repository rather than
 shipping expiring CDN URLs. No authenticated asset downloads are exposed.
 
-Every source must actually be inspected through the tool before a successful
+Every source must actually be inspected by the UI agent's tool before a successful
 handoff: a linked node requires a successful node read; a whole-file link requires
 a file read. Missing nodes, permission failures and inaccessible required designs
 block the run. Optional variables/library access failures may be reported as

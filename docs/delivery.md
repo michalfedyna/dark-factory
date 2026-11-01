@@ -77,6 +77,8 @@ and design-system code, not application logic. Implementation receives the scaff
 and structured handoff, then owns functional wiring and all later repairs. Missing
 credentials or unread required sources block before implementation, with zero
 candidate rounds. See [Figma setup, ownership and REST limits](figma.md).
+Exploration can view PNG previews before confirmation, but does not inspect
+implementation-level design details or edit the repository.
 
 Every successful implementation returns `verification`, validated by
 [`src/contracts/project.ts`](../src/contracts/project.ts), containing at least one
