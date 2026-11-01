@@ -43,6 +43,6 @@ export function createSummary(model: FactoryConfig['model'], apiKey: string) {
       instructions,
       ...createModelConfig(model, apiKey),
     });
-    return generateDeliveryResult(agent, summarySchema, model.maxSteps, input);
+    return generateDeliveryResult(agent, summarySchema, input);
   };
 }

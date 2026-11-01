@@ -4,7 +4,6 @@ const name = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/);
 const command = z.strictObject({
   command: z.string().trim().min(1),
   args: z.array(z.string()).default([]),
-  timeoutMs: z.number().int().min(100).max(3_600_000).default(120_000),
 });
 const targetOptions = {
   id: name,

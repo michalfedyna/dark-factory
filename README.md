@@ -47,8 +47,8 @@ cliproxyapi -config config/router.yaml --codex-login
 
 Alternatively, configure an upstream provider using the
 [router documentation](https://help.router-for.me). The account must expose the
-configured model. The factory checks `/v1/models` and waits until
-`router.readyTimeoutMs` for credentials/catalogs to load. A temporarily empty
+configured model. The factory checks `/v1/models` and waits for
+credentials/catalogs to load, without a readiness deadline. A temporarily empty
 model list is not treated as a permanent failure.
 
 Do not also run a Homebrew proxy service in managed mode. Stop an existing
@@ -85,6 +85,24 @@ You can supply the issue up front:
 ```sh
 npm run dev -- start --issue "Export filtered issues as CSV"
 ```
+
+To see live agent activity instead of Observer summaries:
+
+```sh
+npm run dev -- start --debug
+# Or: dark start --debug
+```
+
+Debug mode streams agent text, provider-exposed reasoning, tool arguments/results,
+step usage, errors, and validated results from exploration through delivery. Agent
+headings and formatted detail blocks keep the output readable; `NO_COLOR` disables
+color and redirected stderr stays plain. The Observer is not started, even when
+enabled in config. Prompts remain interactive and stdout is still only the final
+validated JSON. Debug output can contain source code, user answers, and other
+sensitive data: keep captured logs private. The configured API key and common
+credential fields in formatted objects are redacted; this is not a general secret
+scanner. Raw provider headers, encrypted reasoning, and binary image contents are
+not printed.
 
 One invocation runs one issue from exploration to delivery. The factory validates
 the brief in memory. Confirming the issue plan during exploration is the last
@@ -131,7 +149,7 @@ every real issue.
 ### Repository discovery
 
 `dark start` always runs the registered `default` workflow:
-exploration → implementation/setup → checks → QA → review → summary → draft PR.
+exploration → implementation/setup → checks → browser/mobile QA → sandbox QA if needed → review → summary → draft PR.
 The target is the Git root containing the CLI's working directory; the current
 local branch supplies the pinned base. GitHub publication uses `origin`, or a
 single unambiguous GitHub remote when origin is absent. Without a usable GitHub
@@ -147,14 +165,19 @@ config is needed. Project sandboxes allow network access for dependency setup an
 verification; factory credentials are not passed to them. Changes may span the
 repository within the confirmed brief; protected-path and independent review
 gates still apply.
-QA uses **agent-browser** for web and **agent-device** for native iOS/Android.
-QA/review findings can return to implementation within a shared repair budget;
+QA first uses **agent-browser** for web and **agent-device** for native iOS/Android.
+If criteria cannot be checked with those tools, a second QA agent runs sequentially
+with full Mastra filesystem and sandbox access to test only those blocked criteria.
+It cannot override observed UI failures or repair the candidate.
+QA/review defects return to implementation without a repair-round cap;
 new candidates always get fresh verification. Exploration confirmation authorizes
 the in-scope run through draft PR publication; there are no later user approval prompts.
 Without a usable GitHub remote, verified work remains local. Stdout is one final result JSON. Evidence and retained checkouts
 live under the target repository's `.darkfactory/runs/<run-id>/`; there is no
-separate issue-file output or save step. One timeout covers the entire workflow,
-and checks, QA, and review share a fixed three-repair budget.
+separate issue-file output or save step. Work is supervised: there are no agent
+step caps, workflow deadlines, command timeouts, or repeated-tree cutoffs. Use
+Ctrl+C or Escape to stop a run. Validation, evidence, scope, and publication gates
+still apply; genuine external blockers and execution errors can still stop work.
 
 This first provider is for **trusted local repositories**, not hostile code.
 See [workflow setup, evidence, and limitations](docs/delivery.md).
@@ -163,30 +186,30 @@ See [workflow setup, evidence, and limitations](docs/delivery.md).
 
 `factory.config.json` is validated by
 [`src/config/schema.ts`](src/config/schema.ts). Unknown fields are rejected.
-Only model, observer, router, sandbox execution, and workflow timeout settings belong here. Remove the old
-`ui`, `delivery`, and `outputDir` fields from custom configs.
+Only model, observer, router, and sandbox execution settings belong here. Remove
+the old `model.maxSteps`, `sessionTimeoutMs`, `router.readyTimeoutMs`, `ui`,
+`delivery`, and `outputDir` fields from custom configs. Verification commands no
+longer accept `timeoutMs`.
 
 `.env` and router arguments are relative to the config directory.
 The executable is resolved through `PATH` or an absolute path. Arguments are
 passed directly, without a shell.
 
-| Option                  | Default                             | Purpose                                                                         |
-| ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
-| `model.id`              | `gpt-6.1-sol`                       | Exact model ID/alias exposed by the proxy.                                      |
-| `model.baseUrl`         | `http://127.0.0.1:8317/v1`          | OpenAI-compatible API base URL.                                                 |
-| `model.api`             | `responses`                         | `responses` or `chat`.                                                          |
-| `model.apiKeyEnv`       | `DARKFACTORY_API_KEY`               | Environment variable holding the proxy client key.                              |
-| `model.maxSteps`        | `30`                                | Maximum model steps, including tool calls.                                      |
-| `observer.enabled`      | `true`                              | Background, user-facing progress summaries on stderr.                           |
-| `observer.modelId`      | Same as `model.id`                  | Optional separate model ID on the same proxy, protocol, and credentials.        |
-| `observer.intervalMs`   | `15000`                             | Minimum time between summary requests; no requests without new activity.        |
-| `observer.timeoutMs`    | `10000`                             | Deadline for each background summary request.                                   |
-| `router.managed`        | `true`                              | Own a proxy child; `false` uses an existing endpoint.                           |
-| `router.command`        | `cliproxyapi`                       | Proxy executable.                                                               |
-| `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                                |
-| `router.readyTimeoutMs` | `20000`                             | Proxy/model startup deadline.                                                   |
-| `sandbox.isolation`     | `none`                              | Host execution; set `native` to require Seatbelt (macOS) or Bubblewrap (Linux). |
-| `sessionTimeoutMs`      | `1800000`                           | Whole-workflow deadline, including exploration and repairs (30 minutes).        |
+| Option                  | Default                             | Purpose                                                                                                                  |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `model.id`              | `gpt-6.1-sol`                       | Exact model ID/alias exposed by the proxy.                                                                               |
+| `model.baseUrl`         | `http://127.0.0.1:8317/v1`          | OpenAI-compatible API base URL.                                                                                          |
+| `model.api`             | `responses`                         | `responses` or `chat`.                                                                                                   |
+| `model.reasoningEffort` | `medium`                            | Reasoning effort for all agents: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; support varies by model. |
+| `model.apiKeyEnv`       | `DARKFACTORY_API_KEY`               | Environment variable holding the proxy client key.                                                                       |
+| `observer.enabled`      | `true`                              | Background, user-facing progress summaries on stderr.                                                                    |
+| `observer.modelId`      | Same as `model.id`                  | Optional separate model ID on the same proxy, protocol, and credentials.                                                 |
+| `observer.intervalMs`   | `15000`                             | Minimum time between summary requests; no requests without new activity.                                                 |
+| `observer.timeoutMs`    | `10000`                             | Deadline for each background summary request.                                                                            |
+| `router.managed`        | `true`                              | Own a proxy child; `false` uses an existing endpoint.                                                                    |
+| `router.command`        | `cliproxyapi`                       | Proxy executable.                                                                                                        |
+| `router.args`           | `["-config", "config/router.yaml"]` | Proxy arguments.                                                                                                         |
+| `sandbox.isolation`     | `none`                              | Host execution; set `native` to require Seatbelt (macOS) or Bubblewrap (Linux).                                          |
 
 Host execution favors compatibility for trusted local repositories. Commands run
 with your account's filesystem and network permissions, even though they use a
@@ -217,17 +240,21 @@ No proxy configuration change is needed.
 Agents receive role-specific inputs, not the full workflow state or round history.
 Implementation gets the approved task, allowed paths, check commands, and only the
 latest repair findings, failed criterion notes, and failed check-log tails.
-QA gets acceptance criteria, constraints, target addresses, and current evidence
+Browser/mobile QA gets acceptance criteria, constraints, target addresses, and current evidence
 metadata without file paths—not implementation claims, setup commands, or logs.
 It tests only running application behavior against those criteria, using constrained
-browser/device tools with UI captures returned directly. QA has no workspace,
+browser/device tools with UI captures returned directly. This first QA has no workspace,
 filesystem, or shell tools and does not inspect or review files.
+Sandbox QA receives only the blocked criteria and reasons, constraints, the current
+verification plan, and evidence references. It can read files and run commands,
+including API/CLI tests, but cannot change tracked source, tests, or configuration.
+Successful criteria require its own recorded sandbox command evidence.
 Review gets the task, patch, allowed paths, current acceptance/evidence references,
 and the last relevant reviewer feedback. The PR summary gets only final outcomes.
 
 The workflow still retains complete history for gates and artifacts. Implementation
 and review can read needed source and evidence through their role-specific tools;
-QA cannot. See [agent context](docs/architecture.md#agent-context).
+only the fallback QA has that access. See [agent context](docs/architecture.md#agent-context).
 
 ### Background observer
 
@@ -255,6 +282,7 @@ calls, at most one at a time, only after new activity. A summary failure disable
 summaries for that run and leaves normal stage updates running. Completion,
 cancellation, and errors abort background work without waiting for it.
 Set `observer.enabled: false` to keep only the existing stage updates.
+Use `--debug` to replace summaries with live agent diagnostics for one invocation.
 
 This follows the background-observation pattern from
 [Mastra observational memory](https://mastra.ai/docs/memory/observational-memory),
@@ -277,7 +305,7 @@ The agent asks for confirmation before completion. Zod rejects `ready` briefs
 without confirmation or with open questions, empty requirements/acceptance
 criteria, duplicate IDs, and unknown fields. Invalid briefs cannot advance.
 
-Cancellation, timeout, input errors, and validation failures stop the run. Active
+Cancellation, input errors, and validation failures stop the run. Active
 conversations are not durable across restarts. The brief stays in memory until
 approved run artifacts record the workflow inputs and state. There are no separate
 issue files. Keep `.darkfactory/` private because artifacts may contain sensitive
@@ -290,9 +318,10 @@ information.
 directly to preparation. The CLI starts and cancels one native workflow run.
 
 Delivery uses a nested Mastra repair loop, not a second top-level run.
-`sessionTimeoutMs` bounds the whole run, including exploration confirmation. Implementation uses a
-per-run workspace and sandbox; review gets read-only source access, QA gets only
-application-testing tools, and trusted runners capture revision-bound evidence. See
+The loop has no execution-time or repair-round budget. Implementation uses a
+per-run workspace and sandbox; review gets read-only source access. Browser/mobile
+QA gets only application-testing tools; conditional sandbox QA gets its own
+round-owned workspace and sandbox. Trusted runners capture revision-bound evidence. See
 [architecture](docs/architecture.md) and [delivery](docs/delivery.md).
 
 ## Structure
@@ -303,7 +332,7 @@ src/
   agents/               Mastra agents and their instructions
   workflows/            Native Mastra composition, step schemas, and request context
   delivery/             Delivery operations, resources, policy, evidence, and finishing
-  tools/                Ask and constrained browser/device QA tools
+  tools/                Ask, browser/device QA, and recorded QA evidence tools
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
   integrations/         External Git, GitHub, and proxy adapters

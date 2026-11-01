@@ -181,11 +181,17 @@ describe('default workflow exploration stages', () => {
     await runDefault(options);
     expect(promptSignal?.aborted).toBe(true);
   });
-  test('times out even when an agent is not responding', async () => {
+  test('pending exploration has no automatic deadline but remains cancellable', async () => {
     vi.useFakeTimers();
     const options = setup(() => new Promise(() => {}));
-    const running = expect(runDefault(options)).rejects.toThrow('timed out');
-    await vi.advanceTimersByTimeAsync(30_001);
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    const running = expect(runDefault(options)).rejects.toThrow(
+      'Stopped by user.',
+    );
+    await vi.advanceTimersByTimeAsync(86_400_000);
+    expect(options.close).not.toHaveBeenCalled();
+    controller.abort(new Error('Stopped by user.'));
     await running;
     expect(options.operations.prepare).not.toHaveBeenCalled();
     expect(options.onDeliveryStart).not.toHaveBeenCalled();

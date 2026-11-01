@@ -5,6 +5,7 @@ import * as prompts from '@clack/prompts';
 import { loadConfig } from '../config/load.js';
 import { issueInputSchema } from '../contracts/interaction.js';
 import { startFactory } from '../factory/start.js';
+import { createDebugWriter } from './debug.js';
 import { writeObserver } from './observer.js';
 import { createProgressSpinner } from './progress.js';
 import { CancelledError, createTerminal } from './terminal.js';
@@ -12,6 +13,7 @@ import { CancelledError, createTerminal } from './terminal.js';
 export async function startCommand(options: {
   config: string;
   issue?: string;
+  debug?: boolean;
 }): Promise<void> {
   const suppliedIssue =
     options.issue === undefined
@@ -49,8 +51,13 @@ export async function startCommand(options: {
   const terminal = createTerminal({ cancel });
   const output = process.stderr;
   const progress = createProgressSpinner(output);
+  const debug = options.debug ? createDebugWriter(output, [apiKey]) : undefined;
+  const startProgress = (message: string) => {
+    if (!debug) progress.start(message);
+  };
   const onSignal = () => {
     progress.close();
+    debug?.close();
     controller.abort(new CancelledError());
   };
   process.once('SIGINT', onSignal);
@@ -64,6 +71,7 @@ export async function startCommand(options: {
       apiKey,
       controller.signal,
       workingDirectory,
+      debug ? { debug: debug.write } : {},
     );
     progress.clear();
     const issue = suppliedIssue ?? (await terminal.issue(factory.signal));
@@ -72,9 +80,10 @@ export async function startCommand(options: {
       issue,
       async (question, signal) => {
         progress.clear();
+        debug?.pause();
         try {
           const answer = await terminal.ask(question, signal);
-          progress.start(stage);
+          startProgress(stage);
           return answer;
         } catch (error) {
           controller.abort(
@@ -83,20 +92,26 @@ export async function startCommand(options: {
               : new Error('Terminal input failed.'),
           );
           throw error;
+        } finally {
+          debug?.resume();
         }
       },
       (message) => {
         stage = message;
-        progress.start(message);
-        if (!output.isTTY) output.write(`${message}\n`);
+        debug?.flush();
+        startProgress(message);
+        if (debug && output.isTTY)
+          prompts.log.step(message, { output, withGuide: false });
+        else if (!output.isTTY) output.write(`${message}\n`);
       },
       (message) => {
         progress.clear();
         writeObserver(message, output);
-        progress.start(stage);
+        startProgress(stage);
       },
     );
     progress.close();
+    debug?.close();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     prompts.log.success(
       result.pullRequestUrl ??
@@ -106,6 +121,7 @@ export async function startCommand(options: {
     if (result.status === 'blocked') process.exitCode = 1;
   } catch (error) {
     progress.close();
+    debug?.close();
     if (
       error instanceof CancelledError ||
       controller.signal.reason instanceof CancelledError
@@ -117,6 +133,7 @@ export async function startCommand(options: {
     }
   } finally {
     progress.close();
+    debug?.close();
     try {
       terminal.close();
     } finally {

@@ -6,6 +6,7 @@ import { startRouter } from '../src/integrations/router/process.js';
 
 const routers: Awaited<ReturnType<typeof startRouter>>[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(routers.splice(0).map((router) => router.stop()));
 });
 
@@ -36,7 +37,6 @@ async function config(mode = 'normal') {
         '',
         mode,
       ],
-      readyTimeoutMs: 3_000,
     },
   });
 }
@@ -122,24 +122,29 @@ describe('CLIProxyAPI lifecycle', () => {
       ).toBeGreaterThanOrEqual(4);
     },
   );
-  test.each([
-    ['empty-catalog', 'The authenticated model list stayed empty.'],
-    ['missing-model', 'Available models: other-model.'],
-  ])(
-    'reports the last catalog only after the readiness deadline (%s)',
-    async (mode, detail) => {
-      const settings = await config(mode);
-      settings.router.readyTimeoutMs = 400;
-      const started = Date.now();
-      await expect(
-        startRouter(settings, 'test-key', process.cwd()),
-      ).rejects.toThrow(detail);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(
-        settings.router.readyTimeoutMs,
-      );
-      await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
-    },
-  );
+  test('router readiness has no automatic overall deadline', async () => {
+    const settings = await config();
+    settings.router.managed = false;
+    vi.useFakeTimers();
+    let respond: (response: Response) => void = () => {};
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        }),
+    );
+    let completed = false;
+    const starting = startRouter(settings, 'test-key', process.cwd()).then(
+      (router) => {
+        completed = true;
+        return router;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(86_400_000);
+    expect(completed).toBe(false);
+    respond(Response.json({ data: [{ id: settings.model.id }] }));
+    routers.push(await starting);
+  });
   test('will not claim ownership of a running service', async () => {
     const settings = await config();
     const router = await startRouter(settings, 'test-key', process.cwd());
@@ -177,61 +182,48 @@ describe('CLIProxyAPI lifecycle', () => {
       ),
     ).rejects.toThrow('Cannot start');
   });
-  test('fails with useful auth and model errors and cleans up the child', async () => {
+  test('authentication failure still stops startup and cleans up the child', async () => {
     const settings = await config();
     await expect(
       startRouter(settings, 'wrong-key', process.cwd()),
     ).rejects.toThrow('authentication failed');
     await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
-    settings.router.readyTimeoutMs = 400;
-    await expect(
-      startRouter(
-        { ...settings, model: { ...settings.model, id: 'unavailable-model' } },
-        'test-key',
-        process.cwd(),
-      ),
-    ).rejects.toThrow('not available');
-  });
-  test('times out an unready router and cleans it up', async () => {
-    const settings = await config('unready');
-    settings.router.readyTimeoutMs = 250;
-    await expect(
-      startRouter(settings, 'test-key', process.cwd()),
-    ).rejects.toThrow('not ready');
-    await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
   });
 
-  test('startup cancellation stops its owned child', async () => {
-    const settings = await config('unready');
-    const controller = new AbortController();
-    const starting = startRouter(
-      settings,
-      'test-key',
-      process.cwd(),
-      controller.signal,
-    );
-    const rejected = expect(starting).rejects.toThrow();
-    // Let the child become reachable, but never report model readiness.
-    const deadline = Date.now() + 2_000;
-    while (Date.now() < deadline) {
-      try {
-        if (
-          (
-            await fetch(`${settings.model.baseUrl}/models`, {
-              headers: { Authorization: 'Bearer test-key' },
-            })
-          ).status === 503
-        )
-          break;
-      } catch {
-        /* The child has not bound the port yet. */
+  test.each(['unready', 'empty-catalog', 'missing-model'])(
+    'startup keeps waiting until cancelled and stops its owned child (%s)',
+    async (mode) => {
+      const settings = await config(mode);
+      const controller = new AbortController();
+      const starting = startRouter(
+        settings,
+        'test-key',
+        process.cwd(),
+        controller.signal,
+      );
+      const rejected = expect(starting).rejects.toThrow();
+      // Let the child become reachable, but never report the configured model.
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        try {
+          if (
+            (
+              await fetch(`${settings.model.baseUrl}/models`, {
+                headers: { Authorization: 'Bearer test-key' },
+              })
+            ).status === (mode === 'unready' ? 503 : 200)
+          )
+            break;
+        } catch {
+          /* The child has not bound the port yet. */
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10);
+        });
       }
-      await new Promise((resolve) => {
-        setTimeout(resolve, 10);
-      });
-    }
-    controller.abort();
-    await rejected;
-    await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
-  });
+      controller.abort();
+      await rejected;
+      await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
+    },
+  );
 });

@@ -16,7 +16,7 @@ async function executeProjectCommand(
     command.command,
     command.args,
     {
-      timeout: command.timeoutMs,
+      timeout: 0,
       abortSignal: signal,
     },
   );

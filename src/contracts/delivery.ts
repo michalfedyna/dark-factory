@@ -28,12 +28,21 @@ export const qaSchema = z.strictObject({
   verdict: z.enum(['pass', 'changes-requested', 'blocked']),
   criteria: z
     .array(
-      z.strictObject({
-        id: text,
-        status: z.enum(['pass', 'fail', 'blocked']),
-        evidenceIds: z.array(text).min(1),
-        notes: text,
-      }),
+      z
+        .strictObject({
+          id: text,
+          status: z.enum(['pass', 'fail', 'blocked']),
+          evidenceIds: z.array(text),
+          notes: text,
+        })
+        .refine(
+          (criterion) =>
+            criterion.status === 'blocked' || criterion.evidenceIds.length > 0,
+          {
+            path: ['evidenceIds'],
+            message: 'Tested criteria require evidence.',
+          },
+        ),
     )
     .min(1),
   findings: z.array(findingSchema),
@@ -52,7 +61,7 @@ export const summarySchema = z.strictObject({
 const evidenceSchema = z.strictObject({
   id: text,
   revision: text,
-  kind: z.enum(['check', 'browser', 'device', 'screenshot']),
+  kind: z.enum(['check', 'browser', 'device', 'screenshot', 'sandbox']),
   targetId: text.nullable(),
   operation: text,
   exitCode: z.number().int(),
@@ -65,6 +74,8 @@ const roundSchema = z.strictObject({
   implementation: implementationSchema,
   evidence: z.array(evidenceSchema),
   qa: qaSchema.nullable(),
+  browserQa: qaSchema.optional(),
+  sandboxQa: qaSchema.optional(),
   review: reviewSchema.nullable(),
   findings: z.array(findingSchema),
 });

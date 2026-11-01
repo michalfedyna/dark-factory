@@ -12,16 +12,21 @@ export function createModelConfig(
       api: model.api,
     },
     // The proxy does not persist Responses items. Replay content, not references.
-    defaultOptions:
-      model.api === 'responses'
-        ? {
-            providerOptions: {
+    defaultOptions: {
+      // An explicit condition replaces Mastra's default five-step cutoff.
+      stopWhen: () => false,
+      providerOptions:
+        model.api === 'responses'
+          ? {
               openai: {
+                reasoningEffort: model.reasoningEffort,
                 store: false,
                 include: ['reasoning.encrypted_content' as const],
               },
+            }
+          : {
+              openaiCompatible: { reasoningEffort: model.reasoningEffort },
             },
-          }
-        : {},
+    },
   };
 }

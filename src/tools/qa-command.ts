@@ -121,7 +121,7 @@ export async function executeQaCommand(
       input.args,
       {
         abortSignal: options.signal,
-        timeout: 120_000,
+        timeout: 0,
       },
     );
   } catch {

@@ -1,10 +1,11 @@
 import { Agent } from '@mastra/core/agent';
 import type { FactoryConfig } from '../config/schema.js';
+import type { Debug } from '../contracts/debug.js';
 import { issueBriefSchema } from '../contracts/issue.js';
 import type { Ask } from '../contracts/interaction.js';
 import type { Observe } from '../contracts/progress.js';
 import { createAskTool } from '../tools/ask.js';
-import { createActivityHooks } from './activity.js';
+import { generateResult } from './generation.js';
 import { createModelConfig } from './model.js';
 
 export type Explore = (
@@ -46,6 +47,7 @@ Use empty arrays for absent information.`;
 export function createExploration(
   model: FactoryConfig['model'],
   apiKey: string,
+  debug?: Debug,
 ): Explore {
   return async (issue, ask, signal, observe) => {
     // Each workflow run owns its agent and tools: no shared conversation state.
@@ -56,17 +58,10 @@ export function createExploration(
       ...createModelConfig(model, apiKey),
       tools: { ask: createAskTool(ask, signal) },
     });
-    const response = await agent.generate(issue, {
-      abortSignal: signal,
-      maxSteps: model.maxSteps,
-      toolCallConcurrency: 1,
-      hooks: createActivityHooks('exploration', observe),
-      structuredOutput: {
-        schema: issueBriefSchema,
-        jsonPromptInjection: 'system',
-        errorStrategy: 'strict',
-      },
+    return generateResult(agent, issueBriefSchema, issue, {
+      signal,
+      ...(observe ? { observe } : {}),
+      ...(debug ? { debug } : {}),
     });
-    return issueBriefSchema.parse(response.object);
   };
 }

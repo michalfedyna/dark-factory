@@ -1,12 +1,15 @@
 import { createImplementation } from '../agents/implementation.js';
 import { createQa } from '../agents/qa.js';
+import { createSandboxQa } from '../agents/sandbox-qa.js';
 import { createReview } from '../agents/review.js';
 import { createSummary } from '../agents/summary.js';
 import type { DeliveryState } from '../contracts/delivery.js';
 import { createQaTools } from '../tools/qa.js';
+import { createQaEvidenceTool } from '../tools/qa-evidence.js';
 import {
   implementationContext,
   qaContext,
+  sandboxQaContext,
   reviewContext,
   summaryContext,
 } from './agent-context.js';
@@ -23,9 +26,13 @@ import { QaTargetFailure } from './qa-session.js';
 export function createDeliveryAgents(options: DeliveryOptions) {
   const implement = createImplementation(options.model, options.apiKey);
   const qa = createQa(options.model, options.apiKey);
+  const sandboxQa = createSandboxQa(options.model, options.apiKey);
   const review = createReview(options.model, options.apiKey);
   const summarize = createSummary(options.model, options.apiKey);
-  const observation = options.observe ? { observe: options.observe } : {};
+  const observation = {
+    ...(options.observe ? { observe: options.observe } : {}),
+    ...(options.debug ? { debug: options.debug } : {}),
+  };
   return {
     implement: async (
       run: RunResources,
@@ -59,7 +66,7 @@ export function createDeliveryAgents(options: DeliveryOptions) {
       state: DeliveryState,
       signal: AbortSignal,
     ) => {
-      options.progress('Verifying acceptance criteria');
+      options.progress('Verifying acceptance criteria (browser/mobile)');
       try {
         await round.qaSession.start(signal);
         const tools = createQaTools({
@@ -105,6 +112,28 @@ export function createDeliveryAgents(options: DeliveryOptions) {
         await round.qaSession.close();
       }
     },
+    sandboxQa: async (
+      round: RoundResources,
+      state: DeliveryState,
+      signal: AbortSignal,
+    ) => {
+      options.progress('Verifying remaining acceptance criteria (sandbox)');
+      try {
+        return await sandboxQa({
+          context: sandboxQaContext(
+            state,
+            round.project,
+            round.evidence.records,
+          ),
+          workspace: round.sandboxQaWorkspace,
+          evidenceTool: createQaEvidenceTool(round.evidence),
+          signal,
+          ...observation,
+        });
+      } finally {
+        await round.sandboxQaWorkspace.stop();
+      }
+    },
     review: async (
       run: RunResources,
       state: DeliveryState,
@@ -123,10 +152,6 @@ export function createDeliveryAgents(options: DeliveryOptions) {
         ],
         signal,
       );
-      if (patch.length > 160_000)
-        throw new Error(
-          'Patch is too large for the initial review workflow. Split the issue.',
-        );
       return review({
         context: reviewContext(state, run.project, patch),
         workspace: run.verificationWorkspace,

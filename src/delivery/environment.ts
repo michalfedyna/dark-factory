@@ -18,6 +18,7 @@ import type {
 import { createEvidence } from './evidence.js';
 import { createQaSession } from './qa-session.js';
 import { prepareProject } from './preparation.js';
+import { recordSandboxQaCommands } from './sandbox-qa-evidence.js';
 
 /** Owns live resources, including resources acquired before setup completes. */
 export function createDeliveryEnvironment(options: DeliveryOptions) {
@@ -62,12 +63,22 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         candidate.round,
       );
       run.verificationFiles.setAllowedPaths([evidence.directory]);
+      const sandboxQaSandbox = own(new LocalSandbox(run.projectSandboxOptions));
+      recordSandboxQaCommands(sandboxQaSandbox, evidence);
+      const sandboxQaWorkspace = own(
+        new Workspace({
+          filesystem: new LocalFilesystem({ basePath: run.repository.path }),
+          sandbox: sandboxQaSandbox,
+        }),
+      );
+      resources.delete(sandboxQaSandbox);
       round = {
         round: candidate.round,
         revision: candidate.revision,
         project,
         evidence,
         qaSession: createQaSession(run, project, candidate.round, evidence),
+        sandboxQaWorkspace,
       };
       return round;
     },
@@ -118,6 +129,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       signal.throwIfAborted();
       const projectSandboxOptions = {
         workingDirectory: repository.path,
+        timeout: 0,
         isolation,
         env: {
           HOME: home,
@@ -139,6 +151,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       const automationSandbox = own(
         new LocalSandbox({
           workingDirectory: join(directory, 'qa'),
+          timeout: 0,
           env: {
             HOME: process.env.HOME,
             AGENT_DEVICE_STATE_DIR: join(directory, 'device-state'),
@@ -171,6 +184,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         repository,
         implementationWorkspace,
         implementationSandbox,
+        projectSandboxOptions,
         verificationWorkspace,
         verificationFiles,
         projectSandbox,

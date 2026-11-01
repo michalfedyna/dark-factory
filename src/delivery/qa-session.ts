@@ -23,45 +23,26 @@ async function waitForWebTarget(
   server: QaServer,
   signal: AbortSignal,
 ) {
-  const deadline = new AbortController();
-  const timer = setTimeout(() => {
-    deadline.abort(
-      new Error(
-        `QA target ${target.id} did not respond within ${target.start.timeoutMs}ms.`,
-      ),
-    );
-  }, target.start.timeoutMs);
-  const readinessSignal = AbortSignal.any([signal, deadline.signal]);
-  try {
-    while (true) {
-      readinessSignal.throwIfAborted();
-      if (server.exitCode !== undefined)
-        throw new Error(
-          `QA target ${target.id} exited with code ${server.exitCode}.`,
-        );
-      try {
-        const response = await fetch(target.url, {
-          signal: AbortSignal.any([
-            readinessSignal,
-            AbortSignal.timeout(1_000),
-          ]),
-          redirect: 'manual',
-        });
-        await response.body?.cancel();
-        if (response.status >= 200 && response.status < 400) {
-          readinessSignal.throwIfAborted();
-          if (server.exitCode === undefined) return;
-        }
-      } catch {
-        readinessSignal.throwIfAborted();
+  while (true) {
+    signal.throwIfAborted();
+    if (server.exitCode !== undefined)
+      throw new Error(
+        `QA target ${target.id} exited with code ${server.exitCode}.`,
+      );
+    try {
+      const response = await fetch(target.url, {
+        signal,
+        redirect: 'manual',
+      });
+      await response.body?.cancel();
+      if (response.status >= 200 && response.status < 400) {
+        signal.throwIfAborted();
+        if (server.exitCode === undefined) return;
       }
-      await delay(100, undefined, { signal: readinessSignal });
+    } catch {
+      signal.throwIfAborted();
     }
-  } catch (error) {
-    readinessSignal.throwIfAborted();
-    throw error;
-  } finally {
-    clearTimeout(timer);
+    await delay(100, undefined, { signal });
   }
 }
 

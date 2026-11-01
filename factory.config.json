@@ -3,14 +3,13 @@
     "id": "gpt-6.1-sol",
     "baseUrl": "http://127.0.0.1:8317/v1",
     "api": "responses",
-    "apiKeyEnv": "DARKFACTORY_API_KEY",
-    "maxSteps": 30
+    "reasoningEffort": "medium",
+    "apiKeyEnv": "DARKFACTORY_API_KEY"
   },
   "router": {
     "managed": true,
     "command": "cliproxyapi",
-    "args": ["-config", "config/router.yaml"],
-    "readyTimeoutMs": 20000
+    "args": ["-config", "config/router.yaml"]
   },
   "observer": {
     "enabled": true,
@@ -19,6 +18,5 @@
   },
   "sandbox": {
     "isolation": "none"
-  },
-  "sessionTimeoutMs": 1800000
+  }
 }

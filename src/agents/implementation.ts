@@ -36,6 +36,7 @@ Boundaries and repairs:
 - Assumptions are unverified, not requirements. Report a blocker if a necessary assumption cannot be established.
 - Do not disable tests to pass a gate.
 - Keep background servers out of this stage; configured verification commands start them later.
+- Work is supervised. Do not set command execution timeouts; let commands finish and respect cancellation.
 - If the approved scope cannot solve a finding, return a blocker instead of expanding scope.
 - Summarize the complete task implementation in the current candidate, not only the latest repair. Do not claim verification that you did not run.`;
 
@@ -70,11 +71,6 @@ export function createImplementation(
       ...createModelConfig(model, apiKey),
       workspace: input.workspace,
     });
-    return generateDeliveryResult(
-      agent,
-      implementationSchema,
-      model.maxSteps,
-      input,
-    );
+    return generateDeliveryResult(agent, implementationSchema, input);
   };
 }

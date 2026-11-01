@@ -8,6 +8,7 @@ import { setTimeout } from 'node:timers';
 import {
   decodeRequest,
   encodeReply,
+  encodeStreamReply,
   statelessResponsesError,
 } from './provider-protocol.mjs';
 import { requestRole, scenarioReply } from './provider-scenario.mjs';
@@ -51,10 +52,15 @@ const server = createServer((request, response) => {
   });
   request.on('end', async () => {
     const body = JSON.parse(Buffer.concat(chunks).toString());
-    const protocolError =
+    const reasoningEffort =
       request.url === '/v1/responses'
-        ? statelessResponsesError(body, mode)
-        : undefined;
+        ? body.reasoning?.effort
+        : body.reasoning_effort;
+    let protocolError;
+    if (body.model === 'gpt-6.1-sol' && reasoningEffort !== 'medium')
+      protocolError = 'Model requests must use medium reasoning effort.';
+    else if (request.url === '/v1/responses')
+      protocolError = statelessResponsesError(body, mode);
     if (protocolError) {
       response.writeHead(400, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: { message: protocolError } }));
@@ -96,6 +102,13 @@ const server = createServer((request, response) => {
       });
     }
     const reply = scenarioReply(input, resultPath, mode);
+    if (body.stream) {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      for (const event of encodeStreamReply(request.url, input, reply, mode))
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      response.end('data: [DONE]\n\n');
+      return;
+    }
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(encodeReply(request.url, input, reply, mode)));
   });

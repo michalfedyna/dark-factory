@@ -21,16 +21,12 @@ export async function runDefault(options: {
     signal: AbortSignal,
   ) => { operations: DeliveryOperations; close: () => Promise<void> };
   signal: AbortSignal;
-  timeoutMs: number;
 }) {
   const issue = issueInputSchema.parse(options.issue);
   options.signal.throwIfAborted();
   const run = await options.workflow.createRun();
-  const deadline = new AbortController();
-  const timer = setTimeout(() => {
-    deadline.abort(new Error('Workflow timed out.'));
-  }, options.timeoutMs);
-  const signal = AbortSignal.any([options.signal, deadline.signal]);
+  const lifetime = new AbortController();
+  const signal = AbortSignal.any([options.signal, lifetime.signal]);
   let runtime: ReturnType<typeof options.runtime> | undefined;
   let abort = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -74,10 +70,9 @@ export async function runDefault(options: {
     }
     return result.result;
   } finally {
-    clearTimeout(timer);
     signal.removeEventListener('abort', abort);
     const cancelled = signal.aborted;
-    deadline.abort(new Error('Workflow ended.'));
+    lifetime.abort(new Error('Workflow ended.'));
     try {
       if (cancelled) await run.cancel();
     } finally {

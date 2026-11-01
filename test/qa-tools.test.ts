@@ -44,7 +44,7 @@ async function setup(badImage = false) {
         id: 'web',
         kind: 'web' as const,
         url: 'http://localhost:3000',
-        start: { command: 'node', args: ['server.js'], timeoutMs: 120_000 },
+        start: { command: 'node', args: ['server.js'] },
         screenshots: true,
       },
       {
@@ -53,7 +53,7 @@ async function setup(badImage = false) {
         platform: 'ios' as const,
         app: 'com.example.app',
         device: 'iPhone test',
-        prepare: { command: 'node', args: ['build.js'], timeoutMs: 120_000 },
+        prepare: { command: 'node', args: ['build.js'] },
         screenshots: true,
       },
     ],

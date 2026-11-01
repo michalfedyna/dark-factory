@@ -42,8 +42,7 @@ export async function hostCommand(
     const result = await execute(command, args, {
       ...(cwd ? { cwd } : {}),
       signal,
-      timeout: 120_000,
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: Infinity,
       env: {
         ...env,
         GIT_TERMINAL_PROMPT: '0',

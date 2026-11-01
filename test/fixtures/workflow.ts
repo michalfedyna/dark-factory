@@ -45,7 +45,6 @@ export function createWorkflowSetup(
 ) {
   let captureCount = 0;
   const operations = {
-    maxRepairRounds: 3,
     prepare: vi.fn<DeliveryOperations['prepare']>().mockResolvedValue('base'),
     implement: vi.fn<DeliveryOperations['implement']>().mockResolvedValue({
       summary: 'Implemented CSV export and tests.',
@@ -76,10 +75,20 @@ export function createWorkflowSetup(
       }),
     ),
     qa: vi.fn<DeliveryOperations['qa']>().mockResolvedValue(qaPass),
+    sandboxQa: vi.fn<DeliveryOperations['sandboxQa']>().mockResolvedValue({
+      ...qaPass,
+      verdict: 'blocked',
+      criteria: qaPass.criteria.map((criterion) => ({
+        ...criterion,
+        status: 'blocked',
+      })),
+    }),
     validateQa: vi
       .fn<DeliveryOperations['validateQa']>()
-      .mockImplementation((state) =>
-        Promise.resolve(validateQa(state.brief, state.history.at(-1)!, [])),
+      .mockImplementation((state, _signal, phase) =>
+        Promise.resolve(
+          validateQa(state.brief, state.history.at(-1)!, [], phase),
+        ),
       ),
     review: vi.fn<DeliveryOperations['review']>().mockResolvedValue(reviewPass),
     assertUnchanged: vi
@@ -115,9 +124,6 @@ export function createWorkflowSetup(
     return {
       operations: {
         ...operations,
-        get maxRepairRounds() {
-          return operations.maxRepairRounds;
-        },
         finish: async (...args: Parameters<DeliveryOperations['finish']>) => ({
           ...(await operations.finish(...args)),
           runId,
@@ -135,7 +141,6 @@ export function createWorkflowSetup(
     workflow: mastra.getWorkflow('default'),
     runtime,
     signal: new AbortController().signal,
-    timeoutMs: 30_000,
   };
   return {
     ...options,

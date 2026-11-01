@@ -56,20 +56,13 @@ export function applyReview(
   return { ...round, review, findings };
 }
 
-export function deliveryGate(
-  state: DeliveryState,
-  maxRepairRounds: number,
-): DeliveryState {
+export function deliveryGate(state: DeliveryState): DeliveryState {
   if (state.status === 'blocked') return state;
   const round = currentRound(state);
   const blocking = round.findings.filter(
     (finding) => finding.severity === 'blocking',
   );
-  const repeated = state.history
-    .slice(0, -1)
-    .some((previous) => previous.tree === round.tree);
   const passed =
-    !repeated &&
     !round.implementation.blockers.length &&
     !blocking.length &&
     round.qa?.verdict === 'pass' &&
@@ -86,10 +79,6 @@ export function deliveryGate(
       reason =
         blocking.map((finding) => finding.description).join('\n') ||
         'A question, scope change, or unavailable QA target requires user input.';
-    else if (state.round > maxRepairRounds) reason = 'Repair budget exhausted.';
-    else if (repeated)
-      reason =
-        'Repair made no progress: the candidate repeats an earlier source tree.';
   }
   return {
     ...state,

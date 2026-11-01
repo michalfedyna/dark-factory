@@ -15,6 +15,7 @@ async function factory(
   issue?: string,
   mode = 'normal',
   observerEnabled = true,
+  debug = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'darkfactory-cli-'));
   const { source } = await createTestRepository(directory, {
@@ -34,9 +35,63 @@ async function factory(
     api,
     mode,
     observerEnabled,
+    debug,
     ...(issue === undefined ? {} : { issue }),
   });
 }
+
+test.each(['chat', 'responses'])(
+  'debug streams exploration and delivery instead of invoking the Observer (%s)',
+  async (api) => {
+    const run = await factory(api, 'Export issues', 'normal', true, true);
+    try {
+      await vi.waitFor(
+        () => {
+          expect(run.stderr()).toContain('Which export format?');
+        },
+        { timeout: 10_000 },
+      );
+      expect(run.stderr()).toContain('exploration · Started');
+      expect(run.stderr()).toContain('exploration · Tool call · ask');
+      expect(run.stdout()).toBe('');
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
+      expect(run.stderr()).toContain(
+        'implementation · Tool call · mastra_workspace_write_file',
+      );
+      expect(run.stderr()).toContain(
+        'implementation · Tool result · mastra_workspace_write_file',
+      );
+      expect(run.stderr()).toContain('feature.txt');
+      for (const role of [
+        'exploration',
+        'implementation',
+        'qa',
+        'review',
+        'summary',
+      ])
+        expect(run.stderr()).toContain(`${role} · Completed`);
+      expect(run.stderr()).toContain('Check · test · passed');
+      expect(run.stderr()).not.toContain('Observer:');
+      expect(run.stderr()).not.toContain('test-key');
+      expect(run.stderr()).not.toContain('encrypted-test-');
+      if (api === 'responses')
+        expect(run.stderr()).toContain('Offline reasoning summary.');
+      const contexts = await readFile(
+        join(run.directory, 'agent-contexts.jsonl'),
+        'utf8',
+      );
+      expect(contexts).not.toContain('"role":"observer"');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
 
 test.each(['chat', 'responses'])(
   'background summaries start only after exploration, using a separate model (%s)',
@@ -115,6 +170,34 @@ test.each(['chat', 'responses'])(
   },
   20_000,
 );
+
+test('debug cancellation closes streaming output and stops the owned router', async () => {
+  const run = await factory(
+    'responses',
+    'Export issues',
+    'slow-implementation',
+    true,
+    true,
+  );
+  try {
+    run.child.stdin.write('CSV\nStart\n');
+    await vi.waitFor(
+      () => {
+        expect(run.stderr()).toContain('implementation · Started');
+      },
+      { timeout: 10_000 },
+    );
+    run.child.kill('SIGINT');
+    expect(await run.exit, run.stderr()).toEqual([130, null]);
+    expect(run.stdout()).toBe('');
+    expect(run.stderr()).toContain('Cancelled.');
+    expect(run.stderr()).not.toContain('implementation · Completed');
+    expect(run.stderr()).not.toContain('test-key');
+    await run.assertStopped();
+  } finally {
+    await run.clean();
+  }
+}, 20_000);
 
 test.each(['chat', 'responses'])(
   'empty observer summaries stay silent without disabling delivery (%s)',

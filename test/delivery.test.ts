@@ -67,41 +67,41 @@ describe('default workflow delivery stages', () => {
       expect.any(AbortSignal),
     );
   });
-  test('check failures skip QA/review and share the same repair budget', async () => {
+  test('failed checks return to implementation before QA and review', async () => {
     const { run, operations } = setup();
-    operations.maxRepairRounds = 0;
     operations.checks.mockImplementationOnce((round) =>
       Promise.resolve({ ...round, findings: [finding('checks')] }),
     );
     await expect(run()).resolves.toMatchObject({
-      status: 'blocked',
-      reason: 'Repair budget exhausted.',
-      rounds: 1,
+      status: 'ready',
+      rounds: 2,
     });
-    expect(operations.qa).not.toHaveBeenCalled();
-    expect(operations.review).not.toHaveBeenCalled();
-    expect(operations.summarize).not.toHaveBeenCalled();
+    expect(operations.implement).toHaveBeenCalledTimes(2);
+    expect(operations.checks).toHaveBeenCalledTimes(2);
+    expect(operations.qa).toHaveBeenCalledOnce();
+    expect(operations.review).toHaveBeenCalledOnce();
   });
-  test('QA and review failures cannot reset the shared repair limit', async () => {
+  test('QA and review repairs continue beyond the former shared repair limit', async () => {
     const { run, operations } = setup();
-    operations.maxRepairRounds = 1;
-    operations.qa.mockResolvedValueOnce({
-      ...qaPass,
-      verdict: 'changes-requested',
-      findings: [finding()],
-    });
-    operations.review.mockResolvedValue({
+    for (let round = 0; round < 5; round++)
+      operations.qa.mockResolvedValueOnce({
+        ...qaPass,
+        verdict: 'changes-requested',
+        findings: [finding()],
+      });
+    operations.review.mockResolvedValueOnce({
       verdict: 'changes-requested',
       summary: 'Still incorrect.',
       findings: [finding('review')],
     });
     await expect(run()).resolves.toMatchObject({
-      status: 'blocked',
-      rounds: 2,
-      reason: 'Repair budget exhausted.',
+      status: 'ready',
+      rounds: 7,
     });
-    expect(operations.implement).toHaveBeenCalledTimes(2);
-    expect(operations.summarize).not.toHaveBeenCalled();
+    expect(operations.implement).toHaveBeenCalledTimes(7);
+    expect(operations.qa).toHaveBeenCalledTimes(7);
+    expect(operations.review).toHaveBeenCalledTimes(2);
+    expect(operations.summarize).toHaveBeenCalledOnce();
   });
   test.each(['qa', 'review'] as const)(
     'an unavailable %s target/context blocks without repair',
@@ -187,20 +187,21 @@ describe('default workflow delivery stages', () => {
       expect(operations.summarize).not.toHaveBeenCalled();
     },
   );
-  test('repeated source trees stop a stalled repair', async () => {
+  test('repeated source trees can be reverified instead of stopping a supervised repair', async () => {
     const { run, operations } = setup();
     operations.capture.mockResolvedValue({
       revision: 'same-revision',
       tree: 'same-tree',
     });
-    operations.qa.mockResolvedValue({
+    operations.qa.mockResolvedValueOnce({
       ...qaPass,
       verdict: 'changes-requested',
       findings: [finding()],
     });
     const result = await run();
-    expect(result).toMatchObject({ status: 'blocked', rounds: 2 });
-    expect(result.reason).toContain('no progress');
+    expect(result).toMatchObject({ status: 'ready', rounds: 2 });
+    expect(operations.checks).toHaveBeenCalledTimes(2);
+    expect(operations.qa).toHaveBeenCalledTimes(2);
     expect(operations.implement).toHaveBeenCalledTimes(2);
   });
   test.each([null, uiProjectPlan])(
@@ -243,7 +244,7 @@ describe('default workflow delivery stages', () => {
       expect(operations.finish).not.toHaveBeenCalled();
     },
   );
-  test('an unchanged repair cannot pass solely because a reviewer changes its verdict', async () => {
+  test('an unchanged candidate still reruns checks, QA and review before approval', async () => {
     const { run, operations } = setup();
     operations.capture.mockResolvedValue({
       revision: 'same-revision',
@@ -255,9 +256,10 @@ describe('default workflow delivery stages', () => {
       findings: [finding('review')],
     });
     const result = await run();
-    expect(result.status).toBe('blocked');
-    expect(result.reason).toContain('no progress');
-    expect(operations.summarize).not.toHaveBeenCalled();
+    expect(result.status).toBe('ready');
+    expect(operations.checks).toHaveBeenCalledTimes(2);
+    expect(operations.qa).toHaveBeenCalledTimes(2);
+    expect(operations.review).toHaveBeenCalledTimes(2);
   });
   test('an implementation blocker during repair retains the previous candidate without validating it as the new round', async () => {
     const { run, operations } = setup();
@@ -382,19 +384,23 @@ describe('default workflow delivery stages', () => {
     expect(operations.finish).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
   });
-  test('a nonresponsive agent is bounded by the delivery deadline', async () => {
+  test('a pending agent has no workflow deadline and can still be cancelled', async () => {
     vi.useFakeTimers();
     const { options, operations, close } = setup();
+    const controller = new AbortController();
+    options.signal = controller.signal;
     operations.implement.mockImplementation(() => new Promise(() => {}));
     const running = expect(runDefault(options)).rejects.toThrow(
-      'Workflow timed out.',
+      'Stopped by user.',
     );
-    await vi.advanceTimersByTimeAsync(30_001);
+    await vi.advanceTimersByTimeAsync(86_400_000);
+    expect(close).not.toHaveBeenCalled();
+    controller.abort(new Error('Stopped by user.'));
     await running;
     expect(close).toHaveBeenCalledOnce();
     expect(operations.finish).not.toHaveBeenCalled();
   });
-  test('one deadline bounds exploration and implementation together', async () => {
+  test('exploration and implementation may each outlive the former workflow deadline', async () => {
     vi.useFakeTimers();
     let finishExploration: (value: unknown) => void = () => {};
     const { options, operations, close } = setup(
@@ -403,19 +409,23 @@ describe('default workflow delivery stages', () => {
           finishExploration = resolve;
         }),
     );
-    operations.implement.mockImplementation(() => new Promise(() => {}));
-    const running = expect(runDefault(options)).rejects.toThrow(
-      'Workflow timed out.',
+    let finishImplementation: (value: unknown) => void = () => {};
+    operations.implement.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishImplementation = resolve;
+        }),
     );
-    await vi.advanceTimersByTimeAsync(25_000);
+    const running = runDefault(options);
+    await vi.advanceTimersByTimeAsync(3_600_000);
     finishExploration(brief);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_600_000);
     expect(operations.implement).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(4_001);
-    await running;
+    finishImplementation(implementation);
+    await expect(running).resolves.toMatchObject({ status: 'ready' });
     expect(close).toHaveBeenCalledOnce();
-    expect(operations.finish).not.toHaveBeenCalled();
+    expect(operations.finish).toHaveBeenCalledOnce();
   });
   test('unexpected workflow rejections do not expose provider credentials', async () => {
     const { options, close } = setup();
@@ -457,7 +467,7 @@ describe('QA evidence gates', () => {
     id: 'web',
     kind: 'web' as const,
     url: 'http://localhost:3000',
-    start: { command: 'node', args: ['server.js'], timeoutMs: 120_000 },
+    start: { command: 'node', args: ['server.js'] },
     screenshots: true,
   };
   test('a passing report cannot skip required browser or screenshot evidence', () => {

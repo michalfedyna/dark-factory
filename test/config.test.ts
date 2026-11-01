@@ -19,6 +19,7 @@ describe('factory configuration', () => {
     const config = factoryConfigSchema.parse({});
     expect(config.model.id).toBe('gpt-6.1-sol');
     expect(config.model.api).toBe('responses');
+    expect(config.model.reasoningEffort).toBe('medium');
     expect(config.router.managed).toBe(true);
     expect(config.sandbox.isolation).toBe('none');
     expect(config.observer).toEqual({
@@ -27,6 +28,9 @@ describe('factory configuration', () => {
       timeoutMs: 10_000,
     });
     expect(config).not.toHaveProperty('ui');
+    expect(config.model).not.toHaveProperty('maxSteps');
+    expect(config).not.toHaveProperty('sessionTimeoutMs');
+    expect(config.router).not.toHaveProperty('readyTimeoutMs');
   });
   test.each([
     { ui: { port: 4310 } },
@@ -35,6 +39,10 @@ describe('factory configuration', () => {
     { model: { baseUrl: 'file:///etc/passwd' } },
     { model: { baseUrl: 'https://example.com/v1' } },
     { model: { maxSteps: 0 } },
+    { model: { reasoningEffort: 'extreme' } },
+    { model: { reasoningEffort: null } },
+    { sessionTimeoutMs: 1_800_000 },
+    { router: { readyTimeoutMs: 20_000 } },
     { observer: { intervalMs: 0 } },
     { observer: { timeoutMs: 0 } },
     { observer: { modelId: ' ' } },
@@ -45,6 +53,15 @@ describe('factory configuration', () => {
   ])('rejects invalid configuration %j', (input) => {
     expect(factoryConfigSchema.safeParse(input).success).toBe(false);
   });
+  test.each(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])(
+    'allows explicit reasoning effort %s',
+    (reasoningEffort) => {
+      expect(
+        factoryConfigSchema.parse({ model: { reasoningEffort } }).model
+          .reasoningEffort,
+      ).toBe(reasoningEffort);
+    },
+  );
   test('allows an explicit unmanaged remote endpoint', () => {
     expect(
       factoryConfigSchema.safeParse({
@@ -75,8 +92,8 @@ describe('factory configuration', () => {
     const path = join(directory, 'factory.json');
     await writeFile(path, '{}');
     expect((await loadConfig(path)).directory).toBe(directory);
-    await writeFile(path, '{"model":{"maxSteps":0}}');
-    await expect(loadConfig(path)).rejects.toThrow('model.maxSteps');
+    await writeFile(path, '{"model":{"api":"unsupported"}}');
+    await expect(loadConfig(path)).rejects.toThrow('model.api');
     await writeFile(path, 'not json');
     await expect(loadConfig(path)).rejects.toThrow(
       'Cannot read factory config',

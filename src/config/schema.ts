@@ -9,11 +9,13 @@ export const factoryConfigSchema = z
           .url({ protocol: /^https?$/ })
           .default('http://127.0.0.1:8317/v1'),
         api: z.enum(['chat', 'responses']).default('responses'),
+        reasoningEffort: z
+          .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+          .default('medium'),
         apiKeyEnv: z
           .string()
           .regex(/^[A-Z_][A-Z0-9_]*$/)
           .default('DARKFACTORY_API_KEY'),
-        maxSteps: z.number().int().min(2).max(100).default(30),
       })
       .prefault({}),
     observer: z
@@ -29,7 +31,6 @@ export const factoryConfigSchema = z
         managed: z.boolean().default(true),
         command: z.string().trim().min(1).default('cliproxyapi'),
         args: z.array(z.string()).default(['-config', 'config/router.yaml']),
-        readyTimeoutMs: z.number().int().min(100).max(120_000).default(20_000),
       })
       .prefault({}),
     sandbox: z
@@ -37,12 +38,6 @@ export const factoryConfigSchema = z
         isolation: z.enum(['none', 'native']).default('none'),
       })
       .prefault({}),
-    sessionTimeoutMs: z
-      .number()
-      .int()
-      .min(1_000)
-      .max(86_400_000)
-      .default(1_800_000),
   })
   .superRefine((config, context) => {
     if (!URL.canParse(config.model.baseUrl)) return;

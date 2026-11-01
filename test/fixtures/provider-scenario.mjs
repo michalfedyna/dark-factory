@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 export function requestRole({ payload }) {
   if (payload?.events) return 'observer';
   if (payload?.patch !== undefined) return 'review';
+  if (payload?.blockedCriteria) return 'sandbox-qa';
   if (payload?.allowedPaths) return 'implementation';
   if (payload?.targets) return 'qa';
   if (payload?.issue) return 'summary';
@@ -115,6 +116,43 @@ export function scenarioReply(request, resultPath, mode) {
             ),
           },
         };
+  if (role === 'sandbox-qa') {
+    const failed = mode === 'delivery-sandbox-qa-repair' && prefix === 'r1';
+    const actions = [
+      {
+        name: 'mastra_workspace_execute_command',
+        args: {
+          command: `node -e "if (process.env.DARKFACTORY_API_KEY) process.exit(2); console.log(require('node:fs').readFileSync('feature.txt', 'utf8')); process.exit(${failed ? 1 : 0});"`,
+        },
+      },
+      { name: 'qa_evidence', args: {} },
+    ];
+    if (toolResults < actions.length) return { tool: actions[toolResults] };
+    return {
+      result: {
+        verdict: failed ? 'changes-requested' : 'pass',
+        criteria: payload.acceptanceCriteria.map(({ id }) => ({
+          id,
+          status: failed ? 'fail' : 'pass',
+          evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
+          notes: 'Observed the candidate through a sandbox command.',
+        })),
+        findings: failed
+          ? [
+              {
+                source: 'qa',
+                kind: 'defect',
+                severity: 'blocking',
+                criterionId: 'AC1',
+                description:
+                  'The sandbox behavior check failed. Repair the candidate.',
+                evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
+              },
+            ]
+          : [],
+      },
+    };
+  }
   if (role === 'qa') {
     const actions = [
       {
@@ -165,6 +203,12 @@ export function scenarioReply(request, resultPath, mode) {
         name: 'agent_device',
         args: { targetId: 'ios', operation: 'open', args: [] },
       },
+      ...(mode === 'delivery-long-qa'
+        ? Array.from({ length: 40 }, () => ({
+            name: 'agent_browser',
+            args: { targetId: 'web', operation: 'snapshot', args: [] },
+          }))
+        : []),
       {
         name: 'agent_device',
         args: { targetId: 'ios', operation: 'snapshot', args: [] },
@@ -177,15 +221,20 @@ export function scenarioReply(request, resultPath, mode) {
       payload.targets.some((target) => target.id === action.args.targetId),
     );
     const failed = mode === 'delivery-qa-repair' && prefix === 'r1';
+    const blocked = mode.startsWith('delivery-sandbox-qa');
     return toolResults < actions.length
       ? { tool: actions[toolResults] }
       : {
           result: {
-            verdict: failed ? 'changes-requested' : 'pass',
+            verdict: blocked
+              ? 'blocked'
+              : failed
+                ? 'changes-requested'
+                : 'pass',
             criteria: [
               {
                 id: 'AC1',
-                status: failed ? 'fail' : 'pass',
+                status: blocked ? 'blocked' : failed ? 'fail' : 'pass',
                 evidenceIds: [
                   ...payload.evidence.map((record) => record.id),
                   ...actions.map(
@@ -196,18 +245,29 @@ export function scenarioReply(request, resultPath, mode) {
                 notes: 'Offline test checks and stub UI journeys completed.',
               },
             ],
-            findings: failed
+            findings: blocked
               ? [
                   {
                     source: 'qa',
-                    kind: 'defect',
+                    kind: 'question',
                     severity: 'blocking',
-                    description: 'Repair the initial candidate.',
                     criterionId: 'AC1',
-                    evidenceIds: [`${prefix}-e1`],
+                    description: 'The remaining behavior needs sandbox access.',
+                    evidenceIds: [],
                   },
                 ]
-              : [],
+              : failed
+                ? [
+                    {
+                      source: 'qa',
+                      kind: 'defect',
+                      severity: 'blocking',
+                      description: 'Repair the initial candidate.',
+                      criterionId: 'AC1',
+                      evidenceIds: [`${prefix}-e1`],
+                    },
+                  ]
+                : [],
           },
         };
   }

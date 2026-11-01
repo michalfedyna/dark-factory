@@ -100,6 +100,7 @@ export async function startCompiledFactory(options: {
   issue?: string;
   mode?: string;
   observerEnabled?: boolean;
+  debug?: boolean;
   npmScript?: 'dev' | 'start';
   path?: string;
   timeoutMs?: number;
@@ -138,6 +139,7 @@ export async function startCompiledFactory(options: {
     '--config',
     configPath,
     ...(issue === undefined ? [] : ['--issue', issue]),
+    ...(options.debug ? ['--debug'] : []),
   ];
   const command = options.npmScript ? 'npm' : process.execPath;
   const args = options.npmScript

@@ -8,6 +8,7 @@ import {
 } from '../contracts/delivery.js';
 import type { DeliveryOperations } from './operations.js';
 import { applyReview, canReview, canRunQa } from './policy.js';
+import { combineQaReports, needsSandboxQa } from './qa-handoff.js';
 import { currentRound, replaceRound } from './state.js';
 
 export type DeliveryStep = (
@@ -64,7 +65,35 @@ export const verifyCandidate: DeliveryStep = async (
   const round = currentRound(state);
   if (!canRunQa(round)) return state;
   const qa = qaSchema.parse(await operations.qa(state, signal));
-  const reported = replaceRound(state, { ...round, qa });
+  const reported = replaceRound(state, { ...round, qa, browserQa: qa });
+  const validated = await operations.validateQa(
+    reported,
+    signal,
+    'preliminary',
+  );
+  await operations.assertUnchanged(round.revision, signal);
+  return replaceRound(reported, validated);
+};
+
+export const verifySandboxCandidate: DeliveryStep = async (
+  state,
+  operations,
+  signal,
+) => {
+  if (state.status === 'blocked') return state;
+  const round = currentRound(state);
+  if (!canRunQa(round)) return state;
+  if (!round.qa) throw new Error('Sandbox QA requires browser/mobile QA.');
+  let reported = state;
+  if (needsSandboxQa(round.qa, round.evidence)) {
+    const sandboxQa = qaSchema.parse(await operations.sandboxQa(state, signal));
+    signal.throwIfAborted();
+    reported = replaceRound(state, {
+      ...round,
+      sandboxQa,
+      qa: combineQaReports(round.qa, sandboxQa),
+    });
+  }
   const validated = await operations.validateQa(reported, signal);
   await operations.assertUnchanged(round.revision, signal);
   return replaceRound(reported, validated);

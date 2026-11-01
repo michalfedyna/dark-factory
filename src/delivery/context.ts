@@ -4,6 +4,7 @@ import type {
   Workspace,
 } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
+import type { Debug } from '../contracts/debug.js';
 import type { Project, VerificationProject } from '../contracts/project.js';
 import type { Observe } from '../contracts/progress.js';
 import type { RunRepository } from '../integrations/git/repository.js';
@@ -20,6 +21,7 @@ export interface DeliveryOptions {
   signal: AbortSignal;
   progress: (message: string) => void;
   observe?: Observe;
+  debug?: Debug;
 }
 
 // Live, run-owned resources never enter DeliveryState or workflow output.
@@ -31,6 +33,7 @@ export interface RunResources {
   repository: RunRepository;
   implementationWorkspace: Workspace;
   implementationSandbox: LocalSandbox;
+  projectSandboxOptions: ConstructorParameters<typeof LocalSandbox>[0];
   verificationWorkspace: Workspace;
   verificationFiles: LocalFilesystem;
   projectSandbox: LocalSandbox;
@@ -50,4 +53,5 @@ export interface RoundResources {
   project: VerificationProject;
   evidence: EvidenceRecorder;
   qaSession: QaSession;
+  sandboxQaWorkspace: Workspace;
 }

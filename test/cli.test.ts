@@ -70,6 +70,14 @@ describe('CLI program', () => {
     expect(output.stderr).toBe('');
   });
 
+  test('start help advertises debug streaming', () => {
+    const help = createProgram(version).commands[0]?.helpInformation();
+    expect(help).toContain('--debug');
+    expect(help).toContain(
+      'Stream agent activity instead of Observer summaries',
+    );
+  });
+
   test('unknown options include a help hint', async () => {
     const { program, output } = createTestProgram();
 

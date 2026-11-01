@@ -2,9 +2,10 @@
 
 ```text
 explore → confirm issue plan → prepare isolated checkout
-  → implement/setup/scaffold → snapshot → checks → QA → independent review
-      ↑                                      │             │
-      └──────── bounded in-scope repairs ──────┴─────────────┘
+  → implement/setup/scaffold → snapshot → checks
+  → browser/mobile QA → sandbox QA (only if criteria are blocked) → review
+      ↑                         │                                   │
+      └──────── in-scope repairs ┴───────────────────────────────────┘
   → summary → push branch → draft GitHub PR
 ```
 
@@ -45,7 +46,7 @@ router arguments still resolve alongside that config. There is no `delivery`
 section, project-path option, or separate delivery config file.
 
 The final exploration confirmation authorizes the issue plan and an automatic
-in-scope run through verification, bounded repairs, and draft PR publication,
+in-scope run through verification, supervised repairs, and draft PR publication,
 including captured screenshots and the verification manifest. There is no
 implementation or publication prompt. Only exploration has the `ask` tool;
 delivery has no user interaction callback. EOF/cancellation never confirms a
@@ -97,13 +98,13 @@ disabling isolation or substituting an unrelated app/server. Cross-domain web
 login journeys are not supported yet.
 
 Before web QA starts, the controller waits for a successful HTTP response (2xx/3xx)
-from each target, bounded by that target's `start.timeoutMs`. It does not follow
+from each target without an automatic startup deadline. It does not follow
 redirects during readiness checks. A refused connection, failing response, or
 startup crash cannot count as acceptance evidence. Server startup failures and
 exits during QA retain the command and stdout/stderr as failed, revision-bound
 `qa-server-<target-id>` check records. The controller marks criteria unverified and
-returns those failures and log excerpts to implementation within the same repair
-budget; QA and review do not approve that attempt. Cancellation is not a defect.
+returns those failures and log excerpts to implementation for repair;
+QA and review do not approve that attempt. Cancellation is not a defect.
 Prefer serving the checked production build for web QA. On macOS, Turbopack's
 FSEvents watcher can fail when native Seatbelt isolation is enabled; use a
 compatible serving command in that mode instead of changing the execution policy.
@@ -114,31 +115,51 @@ CSS pixels, for example `["390", "844"]` for mobile and `["1280", "800"]` for
 desktop. QA captures fresh evidence and checks interactions after resizing; native
 apps still require `agent-device`. Other browser settings are not exposed.
 
-The workflow has one `sessionTimeoutMs` deadline, including exploration, questions,
-confirmation, repairs, and publication. The fixed repair budget allows the initial
-implementation plus at most three repairs, shared by checks, QA, and review.
-Commands default to a two-minute deadline and execute through Mastra sandboxes.
-No factory API key or GitHub credential environment is passed to project commands.
+Work is supervised. Agents have no step cap; the workflow has no overall deadline,
+repair-round cap, or repeated-source-tree cutoff. Project, QA, and Git/GitHub
+commands have no factory-imposed timeout, and router/app readiness waits until
+ready or cancelled. A supervisor can stop the run with Ctrl+C or Escape.
+Commands execute through Mastra sandboxes without inheriting factory credentials.
+Observer request deadlines and short shutdown deadlines only bound ancillary
+reporting and cleanup after work ends; they do not cancel active work. Providers,
+operating systems, and external tools may still impose their own limits or fail.
 
 ## Gates and repairs
 
-- Implementation, QA, review, and summary use fresh Mastra agents. Implementation
+- Implementation, both QA stages, review, and summary use fresh Mastra agents. Implementation
   receives filesystem/sandbox tools. Review has a read-only filesystem provider.
-  QA has no workspace, filesystem, or shell tools: it only tests running application
+  Browser/mobile QA has no workspace, filesystem, or shell tools: it only tests running application
   behavior against acceptance criteria through constrained browser/device operations.
   It does not inspect or review source, tests, configuration, diffs, or log files.
-  Neither QA nor review gets a general shell or source-write tool.
   Summary gets no repository or publish tools.
   QA and review must reject missing required UI targets; review also inspects the
   implementation's verification plan for irrelevant, no-op, or weakened checks.
   Implementers receive check-log excerpts for repairs; review can read current
   evidence and screenshot images through its read-only filesystem provider.
-  QA receives evidence metadata without file paths and captured UI images directly
+  Browser/mobile QA receives evidence metadata without file paths and captured UI images directly
   from testing tools. Check outcomes cannot replace observing criterion behavior;
-  QA reports criteria it cannot test through available targets as blocked.
+  it reports criteria it cannot test through available targets as blocked,
+  with the missing capability in the notes and related findings tied to criterion IDs.
   Web and native tools are defined in separate files and exposed as `agent_browser`
   and `agent_device` only when the matching target kind is approved. Each accepts
   an operation such as `open`, `snapshot`, or `screenshot` and literal CLI arguments.
+- The `sandbox-qa` workflow step runs a second agent only when browser/mobile QA
+  leaves blocked criteria. Passing or failing criteria are not retested or replaced.
+  Candidate-server crashes remain implementation defects rather than escalation requests.
+  Sandbox QA gets a full, separate Mastra filesystem and sandbox in the same candidate
+  checkout, with the configured execution/network policy and no factory credentials.
+  It may inspect files, install dependencies, run API/CLI tests, and start background
+  processes to verify the blocked behavior. Earlier UI sessions and servers are
+  closed before it starts; it starts any services it needs. It must not repair source
+  or edit tracked tests/configuration. Its processes stop in `finally` and its workspace
+  is destroyed with the run, including on failure or cancellation.
+  Foreground command results become revision-bound `sandbox` evidence; the
+  `qa_evidence` tool lists their IDs. Source reading and old check results do not
+  establish a sandbox pass. Unresolved criteria remain blocked. The combined report
+  preserves primary passes/failures and unrelated findings, replacing only blocked
+  results and their resolved criterion-specific questions. `state.json` retains
+  `browserQa`, optional `sandboxQa`, and the combined `qa` report for each round.
+  A sandbox pass cannot waive required UI captures, checks, or independent review.
 - A trusted Git adapter captures source commits and rejects out-of-scope changes,
   reserved `.git`/`.darkfactory` changes, and `.env` files other than `.env.example`.
   Check/QA/review source mutations invalidate the candidate. Ignore normal build
@@ -150,7 +171,8 @@ No factory API key or GitHub credential environment is passed to project command
 - QA/review defects return to implementation. All checks and QA rerun on every new
   candidate; review reruns after QA passes. A prior green result never approves a
   repaired candidate. Scope changes, questions, implementation blockers, missing
-  infrastructure, exhausted budgets, or repeated source trees stop automation.
+  infrastructure, and invalid handoffs still stop automation. Defect repairs have
+  no automatic attempt budget; repeated trees still need fresh checks, QA, and review.
 - For questions, scope changes, and unavailable QA infrastructure, the final JSON's
   `reason` includes the blocking findings, so the cause is visible without opening
   `state.json`.
@@ -163,10 +185,10 @@ No factory API key or GitHub credential environment is passed to project command
 After exploration confirmation and pinned-base validation, the workflow creates its private run directory at
 `<git-root>/.darkfactory/runs/<run-id>/`. No separate issue files are created.
 Run directories retain `input.json` (including the sandbox execution policy), `state.json` (including each candidate's verification plan), round command records, PNG
-screenshots, a PR preview, the isolated checkout, and `result.json`. They are
+screenshots, sandbox QA command records when used, a PR preview, the isolated checkout, and `result.json`. They are
 private local artifacts. Git metadata is kept outside the agent's filesystem.
 Sandboxes/background processes and run-owned browser/device sessions are stopped
-on completion, failure, timeout, or cancellation. Checkouts are retained for
+on completion, failure, or cancellation. Checkouts are retained for
 inspection, not automatically deleted.
 
 After passing verification gates, the trusted publisher automatically adds selected successful-round
@@ -201,7 +223,8 @@ HOME and separate checkout are organizational boundaries, not access controls.
 Optional native isolation is also **not a safe boundary for hostile repositories**.
 In particular, Seatbelt permits broad host reads, and local browser/device CLIs
 need host access. `allowedPaths` is a commit gate, not a host filesystem ACL.
-QA commands are constrained but apps and project execution are trusted local code.
+Browser/mobile QA commands are constrained; fallback sandbox QA has general command
+and filesystem access. Apps and project execution are trusted local code.
 Use a disposable environment without production credentials for unfamiliar code.
 Do not use this initial provider for multi-tenant or adversarial workloads.
 

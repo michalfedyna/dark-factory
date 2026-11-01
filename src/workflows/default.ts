@@ -11,6 +11,7 @@ import {
   reviewCandidate,
   summarizeCandidate,
   verifyCandidate,
+  verifySandboxCandidate,
 } from '../delivery/steps.js';
 import {
   createExploreStep,
@@ -32,10 +33,11 @@ export function createDefaultWorkflow(dependencies: { explore: Explore }) {
     .then(deliveryStep('implement', implementCandidate))
     .then(deliveryStep('run-checks', checkCandidate))
     .then(deliveryStep('qa', verifyCandidate))
+    .then(deliveryStep('sandbox-qa', verifySandboxCandidate))
     .then(deliveryStep('review', reviewCandidate))
     .then(
-      deliveryStep('delivery-gate', (state, operations) =>
-        Promise.resolve(deliveryGate(state, operations.maxRepairRounds)),
+      deliveryStep('delivery-gate', (state) =>
+        Promise.resolve(deliveryGate(state)),
       ),
     )
     .commit();

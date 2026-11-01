@@ -11,7 +11,6 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
   const environment = createDeliveryEnvironment(options);
   const agents = createDeliveryAgents(options);
   const operations: DeliveryOperations = {
-    maxRepairRounds: 3,
     prepare: environment.prepare,
     implement: (state, signal) =>
       agents.implement(environment.requireRun(), state, signal),
@@ -34,7 +33,13 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
         state,
         signal,
       ),
-    validateQa: (state) => {
+    sandboxQa: (state, signal) =>
+      agents.sandboxQa(
+        environment.requireRound(currentRound(state)),
+        state,
+        signal,
+      ),
+    validateQa: (state, _signal, phase) => {
       const round = currentRound(state);
       const resources = environment.requireRound(round);
       return Promise.resolve(
@@ -45,6 +50,7 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
             evidence: [...resources.evidence.records],
           },
           resources.project.targets,
+          phase,
         ),
       );
     },

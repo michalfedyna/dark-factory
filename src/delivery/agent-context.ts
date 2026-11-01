@@ -3,6 +3,7 @@ import type {
   ImplementationContext,
 } from '../agents/implementation.js';
 import type { QaContext } from '../agents/qa.js';
+import type { SandboxQaContext } from '../agents/sandbox-qa.js';
 import type { ReviewContext } from '../agents/review.js';
 import type { SummaryContext } from '../agents/summary.js';
 import {
@@ -96,6 +97,31 @@ export function qaContext(
         operation,
         exitCode,
       })),
+  };
+}
+
+export function sandboxQaContext(
+  state: DeliveryState,
+  project: VerificationProject,
+  evidence: Evidence[],
+): SandboxQaContext {
+  const round = currentRound(state);
+  if (!round.qa) throw new Error('Sandbox QA requires browser/mobile QA.');
+  const blockedCriteria = round.qa.criteria.filter(
+    (criterion) => criterion.status === 'blocked',
+  );
+  if (!blockedCriteria.length)
+    throw new Error('Sandbox QA requires blocked acceptance criteria.');
+  return {
+    acceptanceCriteria: state.brief.acceptanceCriteria.filter((criterion) =>
+      blockedCriteria.some((blocked) => blocked.id === criterion.id),
+    ),
+    constraints: state.brief.constraints,
+    verification: { checks: project.checks, targets: project.targets },
+    blockedCriteria,
+    evidence: evidenceReferences(
+      evidence.filter((record) => record.revision === round.revision),
+    ),
   };
 }
 

@@ -2,17 +2,12 @@ import type { VerificationPlan } from '../contracts/project.js';
 import type { DeliveryRound, Finding } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
 
-export function validateQa(
-  brief: IssueBrief,
+function validateReport(
+  known: Set<string>,
+  report: NonNullable<DeliveryRound['qa']>,
   round: DeliveryRound,
-  targets: VerificationPlan['targets'],
-): DeliveryRound {
-  const report = round.qa;
-  if (!report) throw new Error('Missing QA report.');
+) {
   const evidence = new Map(round.evidence.map((record) => [record.id, record]));
-  const known = new Set(
-    brief.acceptanceCriteria.map((criterion) => criterion.id),
-  );
   if (
     report.criteria.length !== known.size ||
     new Set(report.criteria.map((criterion) => criterion.id)).size !==
@@ -35,19 +30,60 @@ export function validateQa(
     if (
       finding.source !== 'qa' ||
       (finding.criterionId !== null && !known.has(finding.criterionId)) ||
-      finding.evidenceIds.some((id) => !evidence.has(id))
+      finding.evidenceIds.some(
+        (id) => evidence.get(id)?.revision !== round.revision,
+      )
     )
       throw new Error('Invalid QA finding references.');
   }
-  const findings: Finding[] = [...report.findings];
   if (report.verdict === 'pass') {
     if (
       report.criteria.some((criterion) => criterion.status !== 'pass') ||
-      findings.some((finding) => finding.severity === 'blocking')
+      report.findings.some((finding) => finding.severity === 'blocking')
     )
       throw new Error(
         'A passing QA report cannot contain failed criteria or blocking findings.',
       );
+  }
+}
+
+export function validateQa(
+  brief: IssueBrief,
+  round: DeliveryRound,
+  targets: VerificationPlan['targets'],
+  phase: 'preliminary' | 'final' = 'final',
+): DeliveryRound {
+  const report = round.qa;
+  if (!report) throw new Error('Missing QA report.');
+  const known = new Set(
+    brief.acceptanceCriteria.map((criterion) => criterion.id),
+  );
+  validateReport(known, report, round);
+  if (round.sandboxQa) {
+    if (!round.browserQa) throw new Error('Missing browser/mobile QA report.');
+    validateReport(known, round.browserQa, round);
+    const blocked = new Set(
+      round.browserQa.criteria
+        .filter((criterion) => criterion.status === 'blocked')
+        .map((criterion) => criterion.id),
+    );
+    validateReport(blocked, round.sandboxQa, round);
+    for (const criterion of round.sandboxQa.criteria) {
+      if (
+        criterion.status === 'pass' &&
+        !criterion.evidenceIds.some((id) =>
+          round.evidence.some(
+            (record) => record.id === id && record.kind === 'sandbox',
+          ),
+        )
+      )
+        throw new Error(
+          'Passing sandbox QA requires sandbox command evidence.',
+        );
+    }
+  }
+  const findings: Finding[] = [...report.findings];
+  if (report.verdict === 'pass') {
     for (const target of targets) {
       for (const operation of [
         'open',
@@ -69,6 +105,7 @@ export function validateQa(
       }
     }
   }
+  if (phase === 'preliminary') return round;
   if (
     report.verdict !== 'pass' &&
     !findings.some((finding) => finding.severity === 'blocking')

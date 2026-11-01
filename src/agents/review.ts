@@ -48,6 +48,6 @@ export function createReview(model: FactoryConfig['model'], apiKey: string) {
       ...createModelConfig(model, apiKey),
       workspace: input.workspace,
     });
-    return generateDeliveryResult(agent, reviewSchema, model.maxSteps, input);
+    return generateDeliveryResult(agent, reviewSchema, input);
   };
 }

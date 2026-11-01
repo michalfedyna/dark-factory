@@ -64,21 +64,13 @@ export async function startRouter(
   if (managed) signal.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const deadline = Date.now() + config.router.readyTimeoutMs;
-    let problem = 'The endpoint is not reachable.';
-    let availableModels: string[] | undefined;
-    while (Date.now() < deadline) {
+    while (true) {
       signal.throwIfAborted();
       if (failure) throw new Error(failure);
       try {
         const response = await fetch(modelsUrl, {
           headers: { Authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.any([
-            signal,
-            AbortSignal.timeout(
-              Math.min(1_000, Math.max(1, deadline - Date.now())),
-            ),
-          ]),
+          signal,
         });
         if (response.status === 401 || response.status === 403) {
           await response.body?.cancel();
@@ -88,7 +80,7 @@ export async function startRouter(
         }
         if (response.ok) {
           const models = modelsSchema.parse(await response.json());
-          availableModels = [
+          const availableModels = [
             ...new Set(models.data.map((model) => model.id)),
           ].sort();
           if (availableModels.includes(config.model.id)) {
@@ -99,7 +91,6 @@ export async function startRouter(
           // The listener can be ready before credentials and model catalogs load.
           // A successful but incomplete model list is not a permanent failure.
         } else {
-          problem = `The models endpoint returned HTTP ${response.status}.`;
           await response.body?.cancel();
         }
       } catch (error) {
@@ -113,19 +104,6 @@ export async function startRouter(
       }
       await delay(100, undefined, { signal });
     }
-    if (failure) throw new Error(failure);
-    if (availableModels) {
-      const catalog =
-        availableModels.length === 0
-          ? 'The authenticated model list stayed empty. Check the router auth directory and provider login.'
-          : `Available models: ${availableModels.slice(0, 20).join(', ')}${availableModels.length > 20 ? ` (+${availableModels.length - 20} more)` : ''}. Set model.id to an available ID or configure upstream access/aliases.`;
-      throw new Error(
-        `Model ${config.model.id} is not available through CLIProxyAPI after ${config.router.readyTimeoutMs}ms. ${catalog}`,
-      );
-    }
-    throw new Error(
-      `CLIProxyAPI was not ready after ${config.router.readyTimeoutMs}ms. ${problem} Check the router config, login, and model.baseUrl.`,
-    );
   } catch (error) {
     await stop();
     throw error;

@@ -10,7 +10,9 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { factoryConfigSchema } from '../src/config/schema.js';
-import type { DeliveryRound } from '../src/contracts/delivery.js';
+import { createSandboxQa } from '../src/agents/sandbox-qa.js';
+import { qaSchema, type DeliveryRound } from '../src/contracts/delivery.js';
+import { createDeliveryAgents } from '../src/delivery/agent-sessions.js';
 import type { DeliveryOptions } from '../src/delivery/context.js';
 import { createDeliveryEnvironment } from '../src/delivery/environment.js';
 import { createDeliveryRuntime } from '../src/delivery/runtime.js';
@@ -20,13 +22,21 @@ import {
   readBase,
 } from '../src/integrations/git/repository.js';
 import { brief } from './fixtures/brief.js';
-import { implementation, projectPlan } from './fixtures/delivery.js';
+import {
+  candidateState,
+  implementation,
+  projectPlan,
+} from './fixtures/delivery.js';
 
 vi.mock('../src/integrations/git/repository.js');
+vi.mock('../src/agents/sandbox-qa.js');
 const projectCommand = vi.hoisted(() =>
   vi.fn<NonNullable<LocalSandbox['executeCommand']>>(),
 );
 const sandboxInstances = vi.hoisted(() => [] as LocalSandbox[]);
+const sandboxSettings = vi.hoisted(
+  () => [] as ConstructorParameters<typeof LocalSandbox>[0][],
+);
 vi.mock('@mastra/core/workspace', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@mastra/core/workspace')>();
@@ -36,6 +46,7 @@ vi.mock('@mastra/core/workspace', async (importOriginal) => {
       constructor(...args: ConstructorParameters<typeof actual.LocalSandbox>) {
         super(...args);
         sandboxInstances.push(this);
+        sandboxSettings.push(args[0]);
       }
       override executeCommand = vi
         .fn<NonNullable<LocalSandbox['executeCommand']>>()
@@ -56,7 +67,7 @@ const webTarget = {
   kind: 'web' as const,
   url: 'http://localhost:3000',
   screenshots: true,
-  start: { command: 'node', args: ['server.js'], timeoutMs: 1_000 },
+  start: { command: 'node', args: ['server.js'] },
 };
 const commandPassed: CommandResult = {
   exitCode: 0,
@@ -86,6 +97,7 @@ function deferred<T>() {
 }
 beforeEach(() => {
   sandboxInstances.length = 0;
+  sandboxSettings.length = 0;
   vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
     Promise.resolve(new Response(null, { status: 200 })),
   );
@@ -111,6 +123,7 @@ beforeEach(() => {
   );
 });
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(
     environments.splice(0).map((environment) => environment.close()),
   );
@@ -228,6 +241,9 @@ test('preparation needs only Git metadata, not an existing executable app', asyn
   expect(projectCommand).not.toHaveBeenCalled();
   const run = environment.requireRun();
   expect(run.project.allowNetwork).toBe(true);
+  expect(sandboxSettings.map((settings) => settings?.timeout)).toEqual([
+    0, 0, 0,
+  ]);
   expect(run.project).not.toHaveProperty('checks');
   expect(
     JSON.parse(
@@ -267,7 +283,7 @@ test.skipIf(!nativeIsolation.available)(
   'native isolation is applied to implementation and project commands when requested',
   async () => {
     const { backend } = nativeIsolation;
-    const { environment, options } = await setup(projectPlan, {
+    const { environment, options, candidate } = await setup(projectPlan, {
       isolation: 'native',
     });
     vi.spyOn(LocalSandbox, 'detectIsolation').mockReturnValue({
@@ -279,6 +295,9 @@ test.skipIf(!nativeIsolation.available)(
     const run = environment.requireRun();
     expect(run.implementationSandbox.isolation).toBe(backend);
     expect(run.projectSandbox.isolation).toBe(backend);
+    expect(
+      environment.beginRound(candidate()).sandboxQaWorkspace.sandbox,
+    ).toMatchObject({ isolation: backend });
     expect(
       JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
     ).toMatchObject({ sandbox: { isolation: 'native' } });
@@ -306,9 +325,7 @@ test('each candidate owns its check commands and QA targets without changing an 
   const first = environment.beginRound(candidate());
   const repaired = candidate(2, 'repaired');
   repaired.implementation.verification = {
-    checks: [
-      { id: 'updated-test', command: 'npm', args: ['test'], timeoutMs: 1_000 },
-    ],
+    checks: [{ id: 'updated-test', command: 'npm', args: ['test'] }],
     targets: [webTarget],
   };
   const second = environment.beginRound(repaired);
@@ -316,6 +333,10 @@ test('each candidate owns its check commands and QA targets without changing an 
   expect(first.project.targets).toEqual([]);
   expect(second.project.checks[0]?.id).toBe('updated-test');
   expect(second.project.targets).toEqual([webTarget]);
+  expect(second.sandboxQaWorkspace).not.toBe(first.sandboxQaWorkspace);
+  expect(second.sandboxQaWorkspace.sandbox).not.toBe(
+    first.sandboxQaWorkspace.sandbox,
+  );
   expect(() => environment.requireRound(candidate())).toThrow(
     'current candidate',
   );
@@ -457,7 +478,7 @@ test('QA cleanup failure still attempts every acquired environment resource', as
   expect(destroySandbox.mock.contexts).toEqual(
     expect.arrayContaining([run.projectSandbox, run.automationSandbox]),
   );
-  expect(destroyWorkspace).toHaveBeenCalledTimes(2);
+  expect(destroyWorkspace).toHaveBeenCalledTimes(3);
   // The rejected close promise is already asserted above.
   environments.splice(environments.indexOf(environment), 1);
 });
@@ -524,15 +545,21 @@ test.each([0, 1])(
   },
 );
 
-test('QA readiness has the configured startup deadline, even when a live server never responds', async () => {
+test('QA readiness waits without an overall startup deadline', async () => {
   const { qaSession, options, evidence } = await setupQaServer();
-  vi.mocked(fetch).mockRejectedValue(new TypeError('Connection refused'));
-  await expect(qaSession.start(options.signal)).rejects.toBeInstanceOf(
-    QaTargetFailure,
-  );
-  expect(await readFile(evidence.records[0]!.path, 'utf8')).toContain(
-    'did not respond within 1000ms',
-  );
+  vi.useFakeTimers();
+  const response = deferred<Response>();
+  vi.mocked(fetch).mockReturnValue(response.promise);
+  let completed = false;
+  const starting = qaSession.start(options.signal).then(() => {
+    completed = true;
+  });
+  await vi.advanceTimersByTimeAsync(3_600_000);
+  expect(completed).toBe(false);
+  expect(evidence.records).toEqual([]);
+  response.resolve(new Response(null, { status: 200 }));
+  await starting;
+  await expect(qaSession.assertRunning()).resolves.toBeUndefined();
 });
 
 test('cancellation during readiness is not reported as a repairable server defect', async () => {
@@ -569,3 +596,74 @@ test('a server that exits during QA invalidates verification and retains its cra
     'Server crashed during verification',
   );
 });
+
+test.each(['pass', 'error', 'cancel'] as const)(
+  'sandbox QA stops its own workspace after %s and preserves the run execution policy',
+  async (outcome) => {
+    const { environment, options, candidate, controller } = await setup();
+    await environment.prepare(brief, options.signal);
+    const resources = environment.beginRound(candidate());
+    const run = environment.requireRun();
+    const state = candidateState();
+    state.history[0]!.qa = qaSchema.parse({
+      verdict: 'blocked',
+      criteria: [
+        {
+          id: 'AC1',
+          status: 'blocked',
+          evidenceIds: [],
+          notes: 'Needs shell.',
+        },
+      ],
+      findings: [],
+    });
+    const result = qaSchema.parse({
+      verdict: 'blocked',
+      criteria: [
+        {
+          id: 'AC1',
+          status: 'blocked',
+          evidenceIds: [],
+          notes: 'Still blocked.',
+        },
+      ],
+      findings: [],
+    });
+    const generate = vi
+      .fn<ReturnType<typeof createSandboxQa>>()
+      .mockImplementation((input) => {
+        expect(input.workspace).toBe(resources.sandboxQaWorkspace);
+        expect(input.context.acceptanceCriteria).toEqual(
+          brief.acceptanceCriteria,
+        );
+        expect(input.evidenceTool.id).toBe('qa_evidence');
+        if (outcome === 'cancel') {
+          controller.abort(new Error('Cancelled'));
+          return Promise.reject(new Error('Cancelled'));
+        }
+        return outcome === 'error'
+          ? Promise.reject(new Error('Provider failed'))
+          : Promise.resolve(result);
+      });
+    vi.mocked(createSandboxQa).mockReturnValueOnce(generate);
+    const stop = vi.spyOn(resources.sandboxQaWorkspace, 'stop');
+    const agents = createDeliveryAgents(options);
+    const pending = agents.sandboxQa(resources, state, options.signal);
+    if (outcome === 'pass') await expect(pending).resolves.toEqual(result);
+    else
+      await expect(pending).rejects.toThrow(
+        outcome === 'cancel' ? 'Cancelled' : 'Provider failed',
+      );
+    expect(stop).toHaveBeenCalledOnce();
+    expect(resources.sandboxQaWorkspace.sandbox).not.toBe(
+      run.implementationSandbox,
+    );
+    expect(resources.sandboxQaWorkspace.sandbox?.id).not.toBe(
+      run.projectSandbox.id,
+    );
+    expect(sandboxSettings.at(-1)).toEqual(run.projectSandboxOptions);
+    expect(sandboxSettings.at(-1)?.env).not.toHaveProperty(
+      'DARKFACTORY_API_KEY',
+    );
+  },
+);

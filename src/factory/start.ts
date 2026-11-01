@@ -2,6 +2,7 @@ import { Mastra } from '@mastra/core/mastra';
 import { createExploration } from '../agents/exploration.js';
 import { createObserver } from '../agents/observer.js';
 import type { FactoryConfig } from '../config/schema.js';
+import type { Debug } from '../contracts/debug.js';
 import type { Ask } from '../contracts/interaction.js';
 import type { Observe } from '../contracts/progress.js';
 import { inspectRepository } from '../integrations/git/inspect.js';
@@ -17,6 +18,7 @@ export async function startFactory(
   apiKey: string,
   signal: AbortSignal,
   repositoryDirectory = process.cwd(),
+  options: { debug?: Debug } = {},
 ) {
   const controller = new AbortController();
   const factorySignal = AbortSignal.any([signal, controller.signal]);
@@ -26,10 +28,11 @@ export async function startFactory(
   );
   const router = await startRouter(config, apiKey, directory, factorySignal);
   try {
-    const explore = createExploration(config.model, apiKey);
-    const observerAgent = config.observer.enabled
-      ? createObserver(config.model, config.observer, apiKey)
-      : undefined;
+    const explore = createExploration(config.model, apiKey, options.debug);
+    const observerAgent =
+      config.observer.enabled && !options.debug
+        ? createObserver(config.model, config.observer, apiKey)
+        : undefined;
     const mastra = new Mastra({
       logger: false,
       ...(observerAgent ? { agents: { observer: observerAgent.agent } } : {}),
@@ -50,7 +53,12 @@ export async function startFactory(
         summary: (message: string) => void = progress,
       ) => {
         let observer: ReturnType<typeof createProgressObserver> | undefined;
-        const observe: Observe = (activity) => observer?.observe(activity);
+        const observe: Observe = (activity) => {
+          observer?.observe(activity);
+          // Agent stream chunks already carry tool activity; stages use progress.
+          if (activity.kind !== 'tool' && activity.kind !== 'stage')
+            options.debug?.({ kind: 'activity', activity });
+        };
         const report = (message: string) => {
           observe({ kind: 'stage', message });
           progress(message);
@@ -63,7 +71,6 @@ export async function startFactory(
             observe,
             workflow: mastra.getWorkflow('default'),
             signal: factorySignal,
-            timeoutMs: config.sessionTimeoutMs,
             onDeliveryStart: (signal) => {
               observer = observerAgent
                 ? createProgressObserver({
@@ -85,6 +92,7 @@ export async function startFactory(
                 signal,
                 progress: report,
                 observe,
+                ...(options.debug ? { debug: options.debug } : {}),
               }),
           });
         } finally {

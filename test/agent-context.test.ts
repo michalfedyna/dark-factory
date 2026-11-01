@@ -11,6 +11,7 @@ import {
 import {
   implementationContext,
   qaContext,
+  sandboxQaContext,
   reviewContext,
   summaryContext,
 } from '../src/delivery/agent-context.js';
@@ -176,6 +177,46 @@ test('QA receives criteria, constraints, target addresses and current evidence m
   expect(qaContext(state, project, evidence).targets[1]).toMatchObject({
     device: 'test-device',
   });
+});
+
+test('sandbox QA receives only blocked criteria, their reasons, the plan, and current evidence', () => {
+  const state = candidateState();
+  const round = currentRound(state);
+  state.brief.acceptanceCriteria.push({
+    ...state.brief.acceptanceCriteria[0]!,
+    id: 'AC2',
+  });
+  round.qa = qaSchema.parse({
+    ...qaPass,
+    verdict: 'blocked',
+    criteria: [
+      ...qaPass.criteria,
+      {
+        id: 'AC2',
+        status: 'blocked',
+        evidenceIds: [],
+        notes: 'Needs CLI access.',
+      },
+    ],
+  });
+  const context = sandboxQaContext(state, projectPlan, [
+    ...round.evidence,
+    { ...round.evidence[0]!, id: 'old', revision: 'old' },
+  ]);
+  expect(context.acceptanceCriteria.map(({ id }) => id)).toEqual(['AC2']);
+  expect(context.blockedCriteria).toEqual([round.qa.criteria[1]]);
+  expect(context.verification).toEqual(round.implementation.verification);
+  expect(context.evidence).toEqual([
+    expect.objectContaining({ id: 'test', path: 'test.json' }),
+  ]);
+  round.qa = null;
+  expect(() => sandboxQaContext(state, projectPlan, [])).toThrow(
+    'requires browser',
+  );
+  round.qa = qaSchema.parse(qaPass);
+  expect(() => sandboxQaContext(state, projectPlan, [])).toThrow(
+    'requires blocked',
+  );
 });
 
 test('review receives the patch, current evidence and only the last relevant review feedback', () => {

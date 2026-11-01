@@ -149,3 +149,100 @@ export function encodeReply(url, request, reply, mode) {
     };
   throw new Error(`Unsupported provider URL: ${url}`);
 }
+
+// Streaming uses the same scenario results as non-streaming requests.
+export function encodeStreamReply(url, request, reply, mode) {
+  const response = encodeReply(url, request, reply, mode);
+  const parts = (text) => text.match(/.{1,24}/gs) ?? [];
+  if (url === '/v1/chat/completions') {
+    const chunk = (delta, finishReason = null) => ({
+      id: response.id,
+      object: 'chat.completion.chunk',
+      created: response.created,
+      model: response.model,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    });
+    const message = response.choices[0].message;
+    const chunks = [chunk({ role: 'assistant' })];
+    if (reply.tool) {
+      const tool = message.tool_calls[0];
+      chunks.push(
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              ...tool,
+              function: { name: tool.function.name, arguments: '' },
+            },
+          ],
+        }),
+      );
+      for (const text of parts(tool.function.arguments))
+        chunks.push(
+          chunk({ tool_calls: [{ index: 0, function: { arguments: text } }] }),
+        );
+    } else {
+      for (const text of parts(message.content))
+        chunks.push(chunk({ content: text }));
+    }
+    chunks.push(chunk({}, reply.tool ? 'tool_calls' : 'stop'));
+    chunks.push({ ...chunk({}), choices: [], usage: response.usage });
+    return chunks;
+  }
+  const chunks = [
+    {
+      type: 'response.created',
+      response: { ...response, status: 'in_progress', output: [] },
+    },
+  ];
+  for (const [index, item] of response.output.entries()) {
+    chunks.push({
+      type: 'response.output_item.added',
+      output_index: index,
+      item: {
+        ...item,
+        ...(item.type === 'function_call' ? { arguments: '' } : {}),
+      },
+    });
+    if (item.type === 'reasoning') {
+      chunks.push({
+        type: 'response.reasoning_summary_part.added',
+        item_id: item.id,
+        output_index: index,
+        summary_index: 0,
+        part: { type: 'summary_text', text: '' },
+      });
+      chunks.push({
+        type: 'response.reasoning_summary_text.delta',
+        item_id: item.id,
+        output_index: index,
+        summary_index: 0,
+        delta: item.summary[0].text,
+      });
+    } else if (item.type === 'message') {
+      for (const text of parts(item.content[0].text))
+        chunks.push({
+          type: 'response.output_text.delta',
+          item_id: item.id,
+          output_index: index,
+          content_index: 0,
+          delta: text,
+        });
+    } else if (item.type === 'function_call') {
+      for (const text of parts(item.arguments))
+        chunks.push({
+          type: 'response.function_call_arguments.delta',
+          item_id: item.id,
+          output_index: index,
+          delta: text,
+        });
+    }
+    chunks.push({
+      type: 'response.output_item.done',
+      output_index: index,
+      item,
+    });
+  }
+  chunks.push({ type: 'response.completed', response });
+  return chunks;
+}

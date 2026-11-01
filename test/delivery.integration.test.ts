@@ -35,7 +35,13 @@ test.each([
     : []),
   ['chat', 'delivery-responsive', 1, undefined],
   ['responses', 'delivery-responsive', 1, undefined],
+  ['chat', 'delivery-long-qa', 1, undefined],
+  ['responses', 'delivery-long-qa', 1, undefined],
   ['responses', 'delivery-qa-repair', 2, undefined],
+  ['chat', 'delivery-sandbox-qa', 1, undefined],
+  ['responses', 'delivery-sandbox-qa', 1, undefined],
+  ['responses', 'delivery-sandbox-qa-cli', 1, undefined],
+  ['responses', 'delivery-sandbox-qa-repair', 2, undefined],
   ['responses', 'delivery-check-repair', 2, undefined],
   ['chat', 'delivery-server-repair', 2, undefined],
   ['responses', 'delivery-server-repair', 2, undefined],
@@ -90,6 +96,7 @@ test.each([
           '-e',
           "if (require('node:fs').readFileSync('feature.txt', 'utf8') !== 'implemented repaired') { console.error('Expected repaired feature.'); process.exit(1); }",
         ];
+      if (mode === 'delivery-sandbox-qa-cli') plan.targets = [];
       await writeFile(
         join(directory, 'verification-plan.json'),
         JSON.stringify(plan),
@@ -100,6 +107,10 @@ test.each([
         cwd: join(source, 'nested'),
         api,
         mode,
+        ...((mode === 'delivery-long-qa' || mode === 'delivery-sandbox-qa') &&
+        api === 'responses'
+          ? { debug: true }
+          : {}),
         ...(mode === 'delivery-native' ? { isolation: 'native' as const } : {}),
         ...(npmScript ? { npmScript } : {}),
         issue: 'Export filtered issues',
@@ -150,6 +161,14 @@ test.each([
           'findings',
         ],
       };
+      if (mode.startsWith('delivery-sandbox-qa'))
+        expectedFields['sandbox-qa'] = [
+          'acceptanceCriteria',
+          'constraints',
+          'verification',
+          'blockedCriteria',
+          'evidence',
+        ];
       for (const [role, fields] of Object.entries(expectedFields)) {
         const requests = contexts.filter((context) => context.role === role);
         expect(requests.length, `Missing ${role} request`).toBeGreaterThan(0);
@@ -164,13 +183,37 @@ test.each([
         contexts.find((context) => context.role === 'exploration')?.tools,
       ).toContain('ask');
       for (const request of contexts.filter(({ role }) => role === 'qa')) {
-        expect(request.tools.sort()).toEqual(['agent_browser', 'agent_device']);
+        expect(request.tools.sort()).toEqual(
+          mode === 'delivery-sandbox-qa-cli'
+            ? []
+            : ['agent_browser', 'agent_device'],
+        );
         for (const record of request.payload?.evidence as object[])
           expect(record).not.toHaveProperty('path');
       }
       expect(contexts.find(({ role }) => role === 'review')?.tools).toContain(
         'mastra_workspace_read_file',
       );
+      const sandboxRequests = contexts.filter(
+        ({ role }) => role === 'sandbox-qa',
+      );
+      if (mode.startsWith('delivery-sandbox-qa')) {
+        expect(sandboxRequests.length).toBeGreaterThan(0);
+        for (const request of sandboxRequests) {
+          expect(request.tools).toEqual(
+            expect.arrayContaining([
+              'mastra_workspace_read_file',
+              'mastra_workspace_write_file',
+              'mastra_workspace_execute_command',
+              'mastra_workspace_get_process_output',
+              'qa_evidence',
+            ]),
+          );
+        }
+        expect(contexts.findIndex(({ role }) => role === 'qa')).toBeLessThan(
+          contexts.findIndex(({ role }) => role === 'sandbox-qa'),
+        );
+      } else expect(sandboxRequests).toHaveLength(0);
       const implementations = contexts.filter(
         (context) => context.role === 'implementation',
       );
@@ -183,6 +226,7 @@ test.each([
             expect.objectContaining({
               source:
                 mode === 'delivery-qa-repair' ||
+                mode === 'delivery-sandbox-qa-repair' ||
                 mode === 'delivery-server-repair'
                   ? 'qa'
                   : mode === 'delivery-check-repair'
@@ -254,11 +298,36 @@ test.each([
       );
       expect(
         evidenceFiles.filter((name) => name.endsWith('.png')),
-      ).toHaveLength(mode === 'delivery-responsive' ? 3 : 2);
+      ).toHaveLength(
+        mode === 'delivery-sandbox-qa-cli'
+          ? 0
+          : mode === 'delivery-responsive'
+            ? 3
+            : 2,
+      );
       const persisted = await readFile(
         join(result.runDirectory, 'state.json'),
         'utf8',
       );
+      if (mode.startsWith('delivery-sandbox-qa')) {
+        const state = deliveryStateSchema.parse(JSON.parse(persisted));
+        const round = state.history.at(-1)!;
+        expect(round.browserQa?.verdict).toBe('blocked');
+        expect(round.sandboxQa?.verdict).toBe('pass');
+        expect(round.qa?.verdict).toBe('pass');
+        expect(round.evidence).toContainEqual(
+          expect.objectContaining({ kind: 'sandbox', exitCode: 0 }),
+        );
+      }
+      if (mode === 'delivery-long-qa') {
+        const state = deliveryStateSchema.parse(JSON.parse(persisted));
+        expect(
+          state.history[0]!.evidence.filter(
+            (record) => record.kind === 'browser',
+          ).length,
+        ).toBeGreaterThan(30);
+        expect(state.history[0]!.qa?.verdict).toBe('pass');
+      }
       expect(persisted).toContain('Independently inspected feature.txt');
       expect(
         (JSON.parse(persisted) as { history: unknown[] }).history,

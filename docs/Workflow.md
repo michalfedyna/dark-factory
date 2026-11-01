@@ -11,7 +11,7 @@ described below.
 Turn a user request into reviewed, tested software and a pull request through a
 controlled, repeatable workflow. This is the target design for DarkFactory, not
 a description of all capabilities already implemented. The initial delivery slice
-(implementation, QA, review, bounded repairs, summary, and automatic draft PR) is
+(implementation, QA, review, supervised repairs, summary, and automatic draft PR) is
 described in [delivery.md](delivery.md), including its local-provider limitations.
 
 LLMs generate proposals; software decides what is allowed, what happens next,
@@ -28,14 +28,16 @@ traceable decisions.
    scaffolding start only after the user approves the exact plan. Running project
    code during discovery requires separate permission and isolation.
 3. **Constrain each task.** Give agents only the approved inputs, owned paths,
-   tools, acceptance criteria, and budget needed for their role. Enforce limits
+   tools and acceptance criteria needed for their role. Enforce access boundaries
    outside the model; prompts alone are not a permission system.
 4. **Validate every handoff.** Machine-consumed outputs are structured and checked
    for both schema validity and meaning: valid references, scope, dependencies,
    requirement coverage, and evidence. Invalid or missing output blocks progress.
-5. **Separate creation from verification.** QA tests application behavior against
-   acceptance criteria without inspecting files. Independent reviewers inspect
-   source. Authors cannot approve their own work; reviewers cannot silently repair
+5. **Separate creation from verification.** Browser/mobile QA tests acceptance
+   behavior without inspecting files. When criteria remain untestable, a second QA
+   agent runs sequentially with full sandbox access to verify those criteria.
+   Independent reviewers inspect source for code quality and correctness.
+   Authors cannot approve their own work; QA and reviewers cannot silently repair
    source or weaken acceptance criteria.
 6. **Require evidence.** “Tests pass” is not evidence. Trusted runners record the
    check, environment, result, logs, and tested revision. Gates are computed from
@@ -43,9 +45,9 @@ traceable decisions.
 7. **Bind decisions to versions.** Plans, inputs, candidates, findings, evidence,
    and approvals have immutable versions. A green result for one candidate is not
    automatically valid for another.
-8. **Bound autonomy.** Retries, repair rounds, concurrency, runtime, tokens, and
-   cost have explicit limits. Exhaustion or repeated lack of progress stops work
-   and reports a blocker.
+8. **Supervise execution.** Work has no automatic step, runtime, repair-round,
+   or repeated-progress budget. Keep work cancellable, preserve evidence, and
+   report real blockers without fabricating approval.
 9. **Keep humans in control.** Users can clarify, approve, request changes, pause,
    or cancel. Silence and conversational summaries never count as approval.
    Only exploration has `ask`. Once the issue plan is accepted, agents work
@@ -99,8 +101,11 @@ acceptance criteria, checks, and completion conditions.
   source-write access.
 - Implementers own assigned source paths; test authors own assigned test paths.
   Shared contracts and configuration have a single owner.
-- QA receives acceptance criteria, constraints, and application targets, with no
-  repository, filesystem, or shell access. It tests observable application behavior.
+- Browser/mobile QA receives acceptance criteria, constraints, and application targets,
+  with no repository, filesystem, or shell access. It tests observable application behavior.
+- Conditional sandbox QA runs after browser/mobile QA, with full filesystem and
+  command access, to verify only criteria the first agent could not check. It cannot
+  overwrite observed failures, change the candidate, or replace independent review.
 - Reviewers receive the approved plan, integrated candidate, and relevant evidence
   with read-only source access and context independent of the author.
 - Trusted workers enforce permissions, execute checks, integrate changes, and
@@ -141,7 +146,7 @@ if impact is uncertain, rerun all required QA. Material plan changes invalidate
 plan approval; candidate changes invalidate delivery approval unless its explicit
 policy covers in-scope repairs.
 
-PR feedback follows the same gates and shares the existing repair budget. After
+PR feedback follows the same gates and supervised repair policy. After
 merge or run closure, feedback starts a linked improvement run. Agents never
 silently rewrite their own prompts, policy, or workflow.
 
