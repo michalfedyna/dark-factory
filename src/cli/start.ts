@@ -6,6 +6,7 @@ import { loadConfig } from '../config/load.js';
 import { issueInputSchema } from '../contracts/interaction.js';
 import { startFactory } from '../factory/start.js';
 import { writeObserver } from './observer.js';
+import { createProgressSpinner } from './progress.js';
 import { CancelledError, createTerminal } from './terminal.js';
 
 export async function startCommand(options: {
@@ -47,18 +48,16 @@ export async function startCommand(options: {
   };
   const terminal = createTerminal({ cancel });
   const output = process.stderr;
-  const progress = output.isTTY
-    ? prompts.spinner({ output, withGuide: false })
-    : undefined;
+  const progress = createProgressSpinner(output);
   const onSignal = () => {
-    progress?.clear();
+    progress.close();
     controller.abort(new CancelledError());
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
   let factory: Awaited<ReturnType<typeof startFactory>> | undefined;
   try {
-    progress?.start('Starting router');
+    progress.start('Starting router');
     factory = await startFactory(
       config,
       directory,
@@ -66,16 +65,16 @@ export async function startCommand(options: {
       controller.signal,
       workingDirectory,
     );
-    progress?.clear();
+    progress.clear();
     const issue = suppliedIssue ?? (await terminal.issue(factory.signal));
     let stage = 'Exploring';
     const result = await factory.run(
       issue,
       async (question, signal) => {
-        progress?.clear();
+        progress.clear();
         try {
           const answer = await terminal.ask(question, signal);
-          progress?.start(stage);
+          progress.start(stage);
           return answer;
         } catch (error) {
           controller.abort(
@@ -88,16 +87,16 @@ export async function startCommand(options: {
       },
       (message) => {
         stage = message;
-        progress?.start(message);
-        if (!progress) output.write(`${message}\n`);
+        progress.start(message);
+        if (!output.isTTY) output.write(`${message}\n`);
       },
       (message) => {
-        progress?.clear();
+        progress.clear();
         writeObserver(message, output);
-        progress?.start(stage);
+        progress.start(stage);
       },
     );
-    progress?.clear();
+    progress.close();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     prompts.log.success(
       result.pullRequestUrl ??
@@ -106,7 +105,7 @@ export async function startCommand(options: {
     );
     if (result.status === 'blocked') process.exitCode = 1;
   } catch (error) {
-    progress?.clear();
+    progress.close();
     if (
       error instanceof CancelledError ||
       controller.signal.reason instanceof CancelledError
@@ -117,6 +116,7 @@ export async function startCommand(options: {
       throw error;
     }
   } finally {
+    progress.close();
     try {
       terminal.close();
     } finally {

@@ -130,6 +130,11 @@ without mixing them into stdout JSON or a pending prompt. Observations are not
 fed back into agents, gates, or approvals. This is not durable observational
 memory and does not add storage or a custom workflow engine.
 
+`cli/progress.ts` owns the Clack spinner lifecycle: stage changes update the active
+animation's message instead of starting additional timers. Questions and Observer
+blocks clear it before writing; completion, failure, and cancellation close it so
+late updates cannot restart the animation.
+
 `cli/observer.ts` owns summary sanitization and plain `Observer: ...` output.
 It shares `cli/accent-block.ts` with titled question context in `cli/terminal.ts`:
 terminal-width accent blocks in a TTY, respecting `NO_COLOR`. The implementation

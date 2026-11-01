@@ -8,6 +8,7 @@ export function writeAccentBlock(
   title: string,
   text: string,
   output: Writable & { columns?: number },
+  options: { surroundingSpace?: boolean } = {},
 ): void {
   // Reserve the guide's three columns and avoid the terminal's last column.
   const width = Math.max(1, (output.columns || 80) - 4);
@@ -21,7 +22,7 @@ export function writeAccentBlock(
     .split('\n')
     .map((line) => line.trimEnd())
     .join('\n');
-  output.write('\n');
+  if (options.surroundingSpace !== false) output.write('\n');
   prompts.log.message(`${heading}\n${body}`, {
     output,
     withGuide: true,
@@ -29,5 +30,5 @@ export function writeAccentBlock(
     secondarySymbol: border,
     spacing: 0,
   });
-  output.write('\n');
+  if (options.surroundingSpace !== false) output.write('\n');
 }

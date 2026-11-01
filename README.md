@@ -213,9 +213,9 @@ does not restrict those tool permissions. See [agent context](docs/architecture.
 The observer is a separate, tool-free Mastra agent. It turns workflow stages,
 tool activity, check outcomes, and delivery gate metadata into short `Observer:`
 updates on stderr. It runs alongside the workflow, not as a blocking step.
-In a terminal, updates appear as spaced accent blocks with a bold cyan heading
+In a terminal, updates appear as compact accent blocks with a bold cyan heading
 and a cyan left border, wrapped to the terminal width. `NO_COLOR` disables color;
-redirected stderr keeps plain `Observer: ...` lines.
+redirected stderr keeps plain `Observer: ...` lines. Updates add no surrounding blank lines.
 Updates pause during terminal questions and approvals; stale results from a
 previous stage or prompt are discarded. Final stdout JSON is unchanged.
 

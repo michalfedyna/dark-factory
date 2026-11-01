@@ -13,5 +13,5 @@ export function writeObserver(
     return;
   }
 
-  writeAccentBlock('Observer', text, output);
+  writeAccentBlock('Observer', text, output, { surroundingSpace: false });
 }
