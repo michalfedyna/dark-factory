@@ -21,6 +21,45 @@ const finding = (source: Finding['source'] = 'qa'): Finding => ({
   evidenceIds: ['test'],
 });
 describe('default workflow delivery stages', () => {
+  test('nested workflow failures identify the actual step and private diagnostics without exposing provider errors', async () => {
+    const { run, operations, close } = setup();
+    const error = new Error('Authorization: Bearer provider-secret');
+    operations.checks.mockRejectedValueOnce(error);
+    const running = run();
+    await expect(running).rejects.toThrow(
+      'Workflow failed at run-checks. See runs/run/failure.json.',
+    );
+    await expect(running).rejects.not.toThrow('provider-secret');
+    expect(operations.recordFailure).toHaveBeenCalledWith(
+      'run-checks',
+      expect.objectContaining({ round: 1 }),
+      error,
+    );
+    expect(operations.qa).not.toHaveBeenCalled();
+    expect(operations.finish).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
+  test('failure-journal errors do not hide the original failed stage', async () => {
+    const { run, operations } = setup();
+    operations.implement.mockRejectedValueOnce(new Error('Provider failed'));
+    operations.recordFailure.mockRejectedValueOnce(new Error('Disk full'));
+    await expect(run()).rejects.toThrow(
+      'Workflow failed at implement. Failure diagnostics could not be saved.',
+    );
+    expect(operations.finish).not.toHaveBeenCalled();
+  });
+  test('concurrent workflow runs do not share failure diagnostics', async () => {
+    const { run, operations } = setup();
+    operations.implement.mockRejectedValueOnce(new Error('Provider failed'));
+    const results = await Promise.allSettled([run(), run()]);
+    expect(
+      results.filter((result) => result.status === 'rejected'),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toMatchObject([{ status: 'fulfilled', value: { status: 'ready' } }]);
+    expect(operations.recordFailure).toHaveBeenCalledOnce();
+  });
   test('runs implementation, trusted checks, QA, review and summary before finishing', async () => {
     const { run, operations, close } = setup();
     await expect(run()).resolves.toMatchObject({
@@ -383,6 +422,7 @@ describe('default workflow delivery stages', () => {
     });
     expect(operations.capture).not.toHaveBeenCalled();
     expect(operations.finish).not.toHaveBeenCalled();
+    expect(operations.recordFailure).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
   });
   test('a pending agent has no workflow deadline and can still be cancelled', async () => {

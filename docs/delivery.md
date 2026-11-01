@@ -48,6 +48,41 @@ The config path selects transport settings, not the target repository. `.env` an
 router arguments still resolve alongside that config. There is no `delivery`
 section, project-path option, or separate delivery config file.
 
+### Native toolchain environment
+
+Project commands keep a private run-owned `HOME`; they do not inherit the full
+factory environment. The controller explicitly supplies a UTF-8 `LANG`/`LC_ALL`,
+`JAVA_HOME`, and `DEVELOPER_DIR` when configured on the host. It forwards
+`ANDROID_HOME` (or `ANDROID_SDK_ROOT`) and normalizes both to the same SDK path.
+Without either variable, it discovers an existing SDK at
+`$HOME/Library/Android/sdk` on macOS or `$HOME/Android/Sdk` on Linux, using the
+original host home, not the private run home. The active Node, selected JDK,
+Android platform-tools, and emulator binaries precede version-manager shims on
+`PATH`. Automation receives the same tool locations but retains host CLI precedence
+so explicitly selected agent-browser/agent-device wrappers are not bypassed.
+Native isolation permits
+read access to these toolchain locations, not writes to the host SDK or JDK.
+
+Set custom locations in the launching shell or the config's adjacent `.env`:
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export JAVA_HOME="/path/to/a/compatible/jdk"
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+```
+
+Use a JDK supported by the project's Gradle version; the newest installed Java
+may not be compatible. Install the required Android platform/build-tools and boot
+a test device before starting. Host AVD definitions are not copied into the private
+run home. For iOS, use an Expo SDK/CLI compatible with the selected Xcode. Xcode 27
+replaces `Simulator.app` with `DeviceHub.app`; the missing old application is not
+evidence of a broken Xcode installation. Expo SDK 54 does not support that change.
+[Expo recommends SDK 58 for Xcode 27](https://github.com/expo/expo/issues/52063),
+including Device Hub and simulator-install compatibility fixes. Upgrade the app's
+SDK and matching dependencies rather than trying to restore `Simulator.app`.
+Missing host tooling or devices must be fixed outside the factory; implementation
+must not use system package managers or change host-wide installations.
+
 The final exploration confirmation authorizes the issue plan and an automatic
 in-scope run through verification, supervised repairs, and draft PR publication,
 including captured screenshots and the verification manifest. There is no
@@ -94,6 +129,29 @@ specific reasons and may include a known valid plan, or null verification when
 none can be supplied. Any implementation blocker stops the run before capture,
 checks, or publication, even if a plan is present. Missing scaffolding is
 implementation work.
+
+Figma scaffolding and implementation prefer the latest stable releases for new
+apps and new dependencies, verified at run time against official package metadata,
+documentation, and release notes. They must check framework peer dependencies and
+the actual target toolchain, use framework-compatible version sets and installers,
+respect explicit version constraints, and avoid unrelated upgrades or unrequested
+prereleases. Compatibility-driven older versions need a documented reason and
+sources in the repository handoff. Review checks concrete compatibility/support
+issues; it does not demand upgrades merely because newer packages exist.
+
+No general web-search tool is configured. Workspace agents (Figma, implementation,
+review, and sandbox QA) can fetch public docs and registry metadata through their
+network-enabled Mastra sandbox, using commands such as `npm view` or `curl`.
+Exploration has only user interaction and scoped linked-Figma reads, not general
+web or shell access. Primary browser/mobile QA remains limited to application
+testing; it has no general research capability. Prompt guidance does not add tools
+or bypass these boundaries.
+
+Source-generating setup must finish during implementation, before the controller
+captures the candidate. For Expo, this includes prebuild and package-script
+updates that `expo run:ios`/`expo run:android` would otherwise make during native
+preparation. Checks and target preparation must preserve captured source,
+manifests, lockfiles, and tests; ignored build outputs may change.
 
 Implementation may change any non-protected repository path within the confirmed
 brief. Review independently checks scope. Mastra project sandboxes run on the host
@@ -180,8 +238,12 @@ operating systems, and external tools may still impose their own limits or fail.
   A sandbox pass cannot waive required UI captures, checks, or independent review.
 - A trusted Git adapter captures source commits and rejects out-of-scope changes,
   reserved `.git`/`.darkfactory` changes, and `.env` files other than `.env.example`.
-  Check/QA/review source mutations invalidate the candidate. Ignore normal build
-  outputs in the target repository; tracked source cannot change during checks.
+  Check/QA/review source mutations invalidate the candidate. Check-stage mutations
+  become failed `candidate-unchanged` evidence and blocking repair findings, keeping
+  all command logs and skipping QA/review. Implementation must correct the setup
+  and hand off a newly captured candidate with fresh verification. QA/review
+  mutations still terminate the workflow; neither agent may repair source.
+  Ignore normal build outputs in the target repository.
 - Required checks have trusted revision-bound exit statuses and private logs. QA
   must cover every acceptance criterion exactly once and cite actual current-round
   evidence IDs. Missing/stale/failed pass evidence, contradictory reports, and
@@ -208,6 +270,15 @@ private local artifacts. Git metadata is kept outside the agent's filesystem.
 Sandboxes/background processes and run-owned browser/device sessions are stopped
 on completion, failure, or cancellation. Checkouts are retained for
 inspection, not automatically deleted.
+
+Delivery-step execution errors report the actual failed step and a private
+`failure.json` path on stderr, including failures inside the nested repair cycle.
+That journal retains the underlying error/cause and references to partial current
+check evidence even when the step could not save a new `state.json`. Configured
+model and Figma tokens are redacted, but this is not a general secret scanner;
+keep error artifacts private. Raw provider errors are not printed to the terminal.
+Cancellation does not produce a repair finding or failure journal. No failed step
+or partial evidence authorizes publication.
 
 After passing verification gates, the trusted publisher automatically adds selected successful-round
 screenshots and a small verification manifest in `.darkfactory/evidence/<run-id>/`.

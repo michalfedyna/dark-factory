@@ -7,12 +7,15 @@ import type { Project, VerificationPlan } from '../contracts/project.js';
 import { createModelConfig } from './model.js';
 import {
   deliveryInstructions,
+  dependencyInstructions,
   generateDeliveryResult,
   type DeliveryAgentInput,
 } from './shared.js';
 import type { IssueTask, RepairFinding } from './task.js';
 
 const instructions = `${deliveryInstructions}
+
+${dependencyInstructions}
 
 Implement the supplied task with focused source changes and tests. Read the repository instructions and relevant files first.
 You own implementation, not approval. Use the workspace filesystem and sandbox tools.
@@ -21,6 +24,7 @@ Repository setup:
 - Inspect the pinned checkout and choose implementation details within the approved scope. Install dependencies and scaffold the app when needed.
 - An empty repository or missing manifest, lockfile, scripts, or source is implementation work, not a blocker or a request for the user to scaffold it.
 - Preserve existing conventions. For a new app, create its manifest, lockfile, runnable development and meaningful verification scripts. Ignore dependency/build outputs before handing off.
+- Finish source-generating setup before returning the candidate. For Expo, run prebuild during implementation and align package scripts with expo run:ios/run:android so later preparation does not rewrite package.json. Decide which native files are source and which are ignored generated output.
 
 Verification handoff:
 - Return verification for this candidate: at least one meaningful deterministic check and every web/native target required by the task.
@@ -28,6 +32,8 @@ Verification handoff:
 - Web targets need strict-port start commands and matching URLs. Native targets need build/install commands. Require screenshots unless inappropriate; omit targets only for non-UI work.
 - Prefer serving the checked production build for web QA. Native isolation is optional; when enabled, use compatible start commands (for example, Turbopack's macOS FSEvents watcher may be unavailable). Do not change the factory's execution policy to work around a failed server.
 - The controller captures the candidate, then runs checks and starts QA targets independently. Return an updated plan on every successful repair.
+- Checks and native preparation must preserve captured source, tests, manifests, and lockfiles. A setup mutation invalidates the attempt and returns to implementation; it never authorizes QA or publication.
+- Missing host toolchains, simulator applications, SDK components, or devices are external blockers. Do not install host-wide tools with Homebrew, sudo, or system package managers. Report the specific prerequisite rather than repeatedly rebuilding, weakening checks, or removing required targets. Use a JDK compatible with the project's Gradle version.
 - Independent browser/device QA and screenshots belong to the later QA stage. Do not run them here or treat pending QA as an implementation blocker. Report any local verification limitation in the summary without claiming a pass.
 - Use blockers only for issues that prevent implementation or a usable verification handoff. A blocked result may include a known verification plan; use null when no valid plan can be supplied. Any blocker stops the workflow, even when verification is present.
 

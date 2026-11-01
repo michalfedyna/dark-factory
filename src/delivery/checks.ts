@@ -2,6 +2,7 @@ import type { LocalSandbox } from '@mastra/core/workspace';
 import type { DeliveryRound } from '../contracts/delivery.js';
 import type { VerificationPlan } from '../contracts/project.js';
 import type { Observe } from '../contracts/progress.js';
+import { CandidateChangedError } from '../integrations/git/repository.js';
 import type { RoundResources, RunResources } from './context.js';
 
 async function executeProjectCommand(
@@ -69,6 +70,31 @@ export async function runChecks(
         evidenceIds: [record.id],
       });
   }
-  await repository.assertUnchanged(round.revision, signal);
+  try {
+    await repository.assertUnchanged(round.revision, signal);
+  } catch (error) {
+    signal.throwIfAborted();
+    if (!(error instanceof CandidateChangedError)) throw error;
+    const record = await evidence.record(
+      {
+        kind: 'check',
+        targetId: null,
+        operation: 'candidate-unchanged',
+        exitCode: 1,
+      },
+      { error: error.message },
+    );
+    findings.push({
+      source: 'checks',
+      kind: 'defect',
+      severity: 'blocking',
+      description:
+        `Verification changed the candidate. Complete source-generating setup ` +
+        `during implementation, before capture, and make checks and target ` +
+        `preparation source-preserving. See ${record.path}.`,
+      criterionId: null,
+      evidenceIds: [record.id],
+    });
+  }
   return { ...round, findings, evidence: [...evidence.records] };
 }

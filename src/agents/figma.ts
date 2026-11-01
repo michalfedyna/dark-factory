@@ -7,12 +7,15 @@ import type { createFigmaTools } from '../tools/figma.js';
 import { createModelConfig } from './model.js';
 import {
   deliveryInstructions,
+  dependencyInstructions,
   generateDeliveryResult,
   type DeliveryAgentInput,
 } from './shared.js';
 import type { IssueTask } from './task.js';
 
 const instructions = `${deliveryInstructions}
+
+${dependencyInstructions}
 
 You are the Figma UI agent. Translate the linked designs into a scaffold for the implementation agent. You own only presentation and the in-repository design system, never business or application logic.
 

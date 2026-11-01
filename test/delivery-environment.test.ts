@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import {
   LocalSandbox,
   ProcessHandle,
@@ -129,6 +129,7 @@ beforeEach(() => {
   );
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.useRealTimers();
   await Promise.all(
     environments.splice(0).map((environment) => environment.close()),
@@ -192,6 +193,78 @@ test('operations reject use before preparation and close is safe before setup', 
   );
   await runtime.close();
   await runtime.close();
+});
+
+test('all project roles receive explicit toolchain paths without inheriting host credentials or HOME', async () => {
+  vi.stubEnv('JAVA_HOME', '/test/jdk');
+  vi.stubEnv('ANDROID_HOME', '/test/sdk');
+  vi.stubEnv('DEVELOPER_DIR', '/test/Xcode/Developer');
+  vi.stubEnv('DARKFACTORY_API_KEY', 'host-secret');
+  const { environment, options, candidate } = await setup();
+  await environment.prepare(brief, options.signal);
+  environment.createFigmaWorkspace();
+  environment.beginRound(candidate());
+  for (const settings of sandboxSettings) {
+    expect(settings?.env).toMatchObject({
+      JAVA_HOME: '/test/jdk',
+      ANDROID_HOME: '/test/sdk',
+      DEVELOPER_DIR: '/test/Xcode/Developer',
+    });
+    expect(settings?.env).not.toHaveProperty('DARKFACTORY_API_KEY');
+  }
+  const run = environment.requireRun();
+  expect(run.projectSandboxOptions?.env?.HOME).toBe(
+    join(run.directory, 'home'),
+  );
+  const automationSettings =
+    sandboxSettings[sandboxInstances.indexOf(run.automationSandbox)];
+  const hostPaths = process.env.PATH?.split(delimiter) ?? [];
+  expect(
+    automationSettings?.env?.PATH?.split(delimiter).slice(0, hostPaths.length),
+  ).toEqual(hostPaths);
+  expect(run.projectSandboxOptions?.nativeSandbox?.readOnlyPaths).toEqual([
+    '/test/sdk',
+    '/test/jdk',
+    '/test/Xcode/Developer',
+  ]);
+});
+
+test('private failure journals retain partial check evidence and redact configured credentials', async () => {
+  const { environment, options, candidate } = await setup();
+  options.apiKey = 'private-"key\\';
+  options.figmaToken = 'private-figma-token';
+  await environment.prepare(brief, options.signal);
+  const resources = environment.beginRound(candidate());
+  const record = await resources.evidence.record(
+    {
+      kind: 'check',
+      targetId: null,
+      operation: 'prepare-ios',
+      exitCode: 1,
+    },
+    { stderr: 'Missing simulator' },
+  );
+  const error = new Error(`Provider rejected ${options.apiKey}`, {
+    cause: new Error('Token private-figma-token'),
+  });
+  const path = await environment.recordFailure(
+    'run-checks',
+    candidateState(),
+    error,
+  );
+  const content = await readFile(path, 'utf8');
+  expect(JSON.parse(content)).toMatchObject({
+    step: 'run-checks',
+    round: 1,
+    revision: 'revision',
+    evidence: [record],
+    error: {
+      message: 'Provider rejected [redacted]',
+      cause: { message: 'Token [redacted]' },
+    },
+  });
+  expect(content).not.toContain('private-');
+  expect(content).not.toContain('private-figma-token');
 });
 
 test('partial setup failure destroys every acquired resource and never exposes a ready run', async () => {

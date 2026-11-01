@@ -2,6 +2,14 @@ import { mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostCommand } from './command.js';
 
+export class CandidateChangedError extends Error {
+  constructor() {
+    super(
+      'Verification changed the candidate. QA and review cannot modify source.',
+    );
+  }
+}
+
 export async function readBase(
   repository: string,
   branch: string,
@@ -131,9 +139,7 @@ export async function createRunRepository(
         (await git(['rev-parse', 'HEAD'], commandSignal)) !== revision ||
         (await stage(commandSignal)) !== expectedTree
       )
-        throw new Error(
-          'Verification changed the candidate. QA and review cannot modify source.',
-        );
+        throw new CandidateChangedError();
     },
   };
 }

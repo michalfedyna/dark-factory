@@ -1,14 +1,15 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import {
   LocalFilesystem,
   LocalSandbox,
   Workspace,
 } from '@mastra/core/workspace';
-import type { DeliveryRound } from '../contracts/delivery.js';
+import type { DeliveryRound, DeliveryState } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
 import { verificationPlanSchema } from '../contracts/project.js';
 import { createRunRepository } from '../integrations/git/repository.js';
+import { toolchainEnvironment } from '../integrations/local/toolchain.js';
 import { createRunArtifacts } from './artifacts.js';
 import type {
   DeliveryOptions,
@@ -39,6 +40,14 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
   };
   return {
     requireRun,
+    recordFailure: (step: string, state: DeliveryState, error: unknown) =>
+      requireRun().artifacts.failure({
+        step,
+        state,
+        error,
+        evidence: round?.evidence.records ?? [],
+        secrets: [options.apiKey, options.figmaToken ?? ''],
+      }),
     createFigmaWorkspace: () => {
       const run = requireRun();
       const sandbox = own(new LocalSandbox(run.projectSandboxOptions));
@@ -138,21 +147,24 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
       signal.throwIfAborted();
       const home = join(directory, 'home');
       await mkdir(home, { mode: 0o700 });
+      const toolchain = await toolchainEnvironment();
       signal.throwIfAborted();
       const projectSandboxOptions = {
         workingDirectory: repository.path,
         timeout: 0,
         isolation,
         env: {
+          ...toolchain,
           HOME: home,
           CI: '1',
-          // Version-manager shims may require the host HOME; prefer this Node installation.
-          PATH: [dirname(process.execPath), process.env.PATH]
-            .filter(Boolean)
-            .join(delimiter),
         },
         nativeSandbox: {
           allowNetwork: project.allowNetwork,
+          readOnlyPaths: [
+            toolchain.ANDROID_HOME,
+            toolchain.JAVA_HOME,
+            toolchain.DEVELOPER_DIR,
+          ].filter((path): path is string => Boolean(path)),
           readWritePaths: [home],
         },
       };
@@ -165,6 +177,11 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
           workingDirectory: join(directory, 'qa'),
           timeout: 0,
           env: {
+            ...toolchain,
+            // Keep explicitly selected automation CLIs ahead of global Node binaries.
+            PATH: [process.env.PATH, toolchain.PATH]
+              .filter(Boolean)
+              .join(delimiter),
             HOME: process.env.HOME,
             AGENT_DEVICE_STATE_DIR: join(directory, 'device-state'),
           },

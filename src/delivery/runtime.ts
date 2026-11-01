@@ -71,6 +71,7 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
       finishDelivery(environment.requireRun(), options, state, signal),
     record: (state) =>
       environment.requireRun().artifacts.record(state, options.observe),
+    recordFailure: environment.recordFailure,
   };
   return { operations, close: environment.close };
 }

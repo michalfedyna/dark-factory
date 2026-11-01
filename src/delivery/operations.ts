@@ -27,4 +27,9 @@ export interface DeliveryOperations {
     signal: AbortSignal,
   ) => Promise<DeliveryResult>;
   record: (state: DeliveryState) => Promise<void>;
+  recordFailure: (
+    step: string,
+    state: DeliveryState,
+    error: unknown,
+  ) => Promise<string>;
 }

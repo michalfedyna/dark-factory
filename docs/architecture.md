@@ -330,6 +330,8 @@ resources in `finally`. It starts its own services after the primary UI session 
 | `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                |
 | `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation, QA, and review sessions.                                   |
 | `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                   |
+| `delivery/failure.ts`                   | Safe controller-authored step errors and bounded private error/cause serialization.                             |
+| `integrations/local/toolchain.ts`       | Select credential-free locale/toolchain environment and discover host Android SDK paths.                        |
 | `delivery/qa-session.ts`                | Own round-specific automation sessions, server readiness, and revision-bound server failure logs.               |
 | `delivery/qa-handoff.ts`                | Decide whether sandbox QA is needed and combine reports without replacing UI passes or failures.                |
 | `delivery/sandbox-qa-evidence.ts`       | Record native sandbox QA command outcomes as revision-bound evidence.                                           |
@@ -346,7 +348,10 @@ compatibility. Opt-in `"native"` mode requires an available Seatbelt/Bubblewrap
 backend and fails closed rather than falling back. Both modes allow network access
 for dependency installation and verification; neither inherits factory credentials.
 Their PATH prefers the factory's active Node installation over HOME-dependent
-version-manager shims while retaining a private run-owned HOME.
+version-manager shims while retaining a private run-owned HOME. Explicit UTF-8
+locale and host JDK/Xcode/Android SDK locations are shared with automation; the
+full host environment and credentials are not inherited. SDK discovery uses the
+host home before replacing it. Native isolation grants read-only toolchain access.
 Implementation owns setup and returns a `VerificationPlan` with actual checks and
 QA targets after implementing or scaffolding the app. Each round combines that
 candidate's plan with project settings as a `VerificationProject`; no commands or

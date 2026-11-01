@@ -2,13 +2,17 @@ import { RequestContext } from '@mastra/core/request-context';
 import { issueInputSchema, type Ask } from '../contracts/interaction.js';
 import type { Observe } from '../contracts/progress.js';
 import type { createDefaultWorkflow } from '../workflows/default.js';
+import type { WorkflowRequestContext } from '../workflows/steps.js';
 import type { DeliveryOperations } from '../delivery/operations.js';
+import { DeliveryStepFailure } from '../delivery/failure.js';
 import { PublicationError } from '../integrations/github/publish.js';
 
 const explorationError =
   'Exploration failed or returned an invalid brief. Check router authentication/model access and try again.';
-const workflowError =
-  'Workflow failed. Check repository access, QA prerequisites, model access, and any run artifacts. No failed gate authorizes publication.';
+const workflowError = (step?: string) =>
+  `Workflow failed${step ? ` at ${step}` : ''}. ` +
+  'Check repository access, QA prerequisites, model access, and any run artifacts. ' +
+  'No failed gate authorizes publication.';
 
 export async function runDefault(options: {
   issue: unknown;
@@ -43,22 +47,27 @@ export async function runDefault(options: {
   try {
     signal.throwIfAborted();
     runtime = options.runtime(run.runId, signal);
+    const requestContext = new RequestContext<WorkflowRequestContext>([
+      ['ask', options.ask],
+      ['progress', options.progress],
+      ['observe', options.observe ?? (() => {})],
+      ['onDeliveryStart', () => options.onDeliveryStart?.(signal)],
+      ['operations', runtime.operations],
+      ['signal', signal],
+    ]);
     const result = await Promise.race([
       run
         .start({
           inputData: { issue },
-          requestContext: new RequestContext([
-            ['ask', options.ask],
-            ['progress', options.progress],
-            ['observe', options.observe ?? (() => {})],
-            ['onDeliveryStart', () => options.onDeliveryStart?.(signal)],
-            ['operations', runtime.operations],
-            ['signal', signal],
-          ]),
+          requestContext,
         })
         .catch((error: unknown) => {
-          if (error instanceof PublicationError) throw error;
-          throw new Error(workflowError, { cause: error });
+          if (
+            error instanceof PublicationError ||
+            error instanceof DeliveryStepFailure
+          )
+            throw error;
+          throw new Error(workflowError(), { cause: error });
         }),
       aborted,
     ]);
@@ -70,10 +79,16 @@ export async function runDefault(options: {
         publication.error instanceof PublicationError
       )
         throw publication.error;
+      // Nested workflows serialize errors; keep safe controller diagnostics run-local.
+      const failure = requestContext.get('deliveryFailure');
+      if (failure instanceof DeliveryStepFailure) throw failure;
+      const failedStep = Object.entries(result.steps).find(
+        ([, step]) => step.status === 'failed',
+      )?.[0];
       throw new Error(
         result.steps['explore-issue']?.status === 'failed'
           ? explorationError
-          : workflowError,
+          : workflowError(failedStep),
       );
     }
     return result.result;

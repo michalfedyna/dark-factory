@@ -117,6 +117,9 @@ export function createWorkflowSetup(
       }),
     ),
     record: vi.fn<DeliveryOperations['record']>().mockResolvedValue(),
+    recordFailure: vi
+      .fn<DeliveryOperations['recordFailure']>()
+      .mockResolvedValue('runs/run/failure.json'),
   } satisfies DeliveryOperations;
   const mastra = new Mastra({
     logger: false,

@@ -9,6 +9,7 @@ import type {
 import type { IssueBrief } from '../contracts/issue.js';
 import type { Observe } from '../contracts/progress.js';
 import type { Project } from '../contracts/project.js';
+import { failureDetails } from './failure.js';
 
 export async function readFailedCheckLogs(evidence: Evidence[]) {
   const records = evidence.filter(
@@ -43,6 +44,36 @@ export function createRunArtifacts(directory: string) {
         mode: 0o600,
       }),
     result: (result: DeliveryResult) => json('result.json', result),
+    failure: async (input: {
+      step: string;
+      state: DeliveryState;
+      evidence: Evidence[];
+      error: unknown;
+      secrets: string[];
+    }) => {
+      const { step, state, evidence, error, secrets } = input;
+      const credentials = secrets.filter(Boolean);
+      const content = JSON.stringify(
+        {
+          step,
+          round: state.round,
+          revision: state.history.at(-1)?.revision ?? null,
+          error: failureDetails(error),
+          evidence,
+        },
+        (_key, value: unknown) =>
+          typeof value === 'string'
+            ? credentials.reduce(
+                (text, secret) => text.replaceAll(secret, '[redacted]'),
+                value,
+              )
+            : value,
+        2,
+      );
+      const path = join(directory, 'failure.json');
+      await writeFile(path, content, { mode: 0o600 });
+      return path;
+    },
     record: async (state: DeliveryState, observe?: Observe) => {
       const round = state.history.at(-1);
       observe?.({
