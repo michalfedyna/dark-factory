@@ -98,6 +98,7 @@ const server = createServer((request, response) => {
 });
 server.listen(Number(port), '127.0.0.1');
 process.on('SIGTERM', () => {
+  if (mode === 'ignore-term') return;
   server.close();
   server.closeAllConnections();
 });

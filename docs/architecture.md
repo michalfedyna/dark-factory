@@ -23,8 +23,10 @@ implemented here.
   workflow runs, maps failures to safe messages, and owns background observation.
 - `integrations/` owns external Git, GitHub, and proxy adapters. The router adapter
   owns only the process it starts, waits for the authenticated model catalog, and
-  handles bounded startup/shutdown. Domain gates and PR text belong in `delivery/`,
-  not in external adapters.
+  handles bounded startup/shutdown. `router/managed-process.ts` owns the factory's
+  supervisor connection; `router/supervisor.ts` starts the proxy and stops its
+  process group when that connection closes, even after a factory crash or SIGKILL.
+  Domain gates and PR text belong in `delivery/`, not in external adapters.
 - `cli/` loads config/environment and connects Commander, Clack, stdin/stderr,
   structured stdout, and process signals to the factory.
 
@@ -146,7 +148,11 @@ exploration, inspection, approvals, implementation, repairs, and publication.
 
 Ctrl+C/Escape and termination signals cancel with exit code 130. Startup failures,
 EOF, model/schema failures, persistence failures, and timeouts exit with code 1.
-The factory closes its proxy in all cases; unmanaged endpoints are never killed.
+Initialization failures also stop an already acquired proxy. The supervisor detects
+factory death through IPC disconnection rather than relying on factory exit handlers.
+On macOS/Linux it terminates the owned process group, including wrappers and their
+children, and escalates to SIGKILL after three seconds if needed. Unmanaged endpoints
+are never killed. Processes that deliberately leave the group are not supervised.
 Raw provider errors are not copied into user-facing error messages.
 
 Structured output uses schema prompt injection to coexist with tool calls through

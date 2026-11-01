@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { factoryConfigSchema } from '../src/config/schema.js';
 import { startRouter } from '../src/integrations/router/process.js';
 
@@ -58,6 +58,55 @@ describe('CLIProxyAPI lifecycle', () => {
     await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
     await router.stop();
   });
+  test('concurrent stop calls wait for the same cleanup', async () => {
+    const settings = await config();
+    const router = await startRouter(settings, 'test-key', process.cwd());
+    routers.push(router);
+    const stopping = router.stop();
+    expect(router.stop()).toBe(stopping);
+    await stopping;
+    await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
+  });
+  test('cancellation after readiness stops the owned proxy', async () => {
+    const settings = await config();
+    const controller = new AbortController();
+    const router = await startRouter(
+      settings,
+      'test-key',
+      process.cwd(),
+      controller.signal,
+    );
+    routers.push(router);
+    controller.abort();
+    await expect(router.exited).resolves.toContain('CLIProxyAPI exited');
+    await router.stop();
+    await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
+  });
+  test('forcibly kills a proxy that ignores SIGTERM', async () => {
+    const settings = await config('ignore-term');
+    const router = await startRouter(settings, 'test-key', process.cwd());
+    routers.push(router);
+    await router.stop();
+    await expect(router.exited).resolves.toContain('SIGKILL');
+    await expect(fetch(`${settings.model.baseUrl}/models`)).rejects.toThrow();
+  }, 10_000);
+  test.skipIf(process.platform === 'win32')(
+    'stops descendants even when the command wrapper exits first',
+    async () => {
+      const settings = await config();
+      settings.router.args[0] = fileURLToPath(
+        new URL('./fixtures/router-wrapper.mjs', import.meta.url),
+      );
+      const router = await startRouter(settings, 'test-key', process.cwd());
+      routers.push(router);
+      await router.stop();
+      await vi.waitFor(async () => {
+        await expect(
+          fetch(`${settings.model.baseUrl}/models`),
+        ).rejects.toThrow();
+      });
+    },
+  );
   test.each(['delayed-catalog', 'delayed-model'])(
     'waits for the configured model when the catalog is still loading (%s)',
     async (mode) => {

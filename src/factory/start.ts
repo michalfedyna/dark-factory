@@ -26,93 +26,101 @@ export async function startFactory(
     factorySignal,
   );
   const router = await startRouter(config, apiKey, directory, factorySignal);
-  const explore = createExploration(config.model, apiKey);
-  const observerAgent = config.observer.enabled
-    ? createObserver(config.model, config.observer, apiKey)
-    : undefined;
-  const mastra = new Mastra({
-    logger: false,
-    ...(observerAgent ? { agents: { observer: observerAgent.agent } } : {}),
-    workflows: {
-      default: createDefaultWorkflow({ explore }),
-    },
-  });
-  let closing: Promise<void> | undefined;
-  void router.exited.then((message) => {
-    if (!closing) controller.abort(new Error(message));
-  });
-  return {
-    signal: factorySignal,
-    run: async (
-      issue: unknown,
-      ask: Ask,
-      progress: (message: string) => void,
-      summary: (message: string) => void = progress,
-    ) => {
-      let observer: ReturnType<typeof createProgressObserver> | undefined;
-      const observe: Observe = (activity) => observer?.observe(activity);
-      const report = (message: string) => {
-        observe({ kind: 'stage', message });
-        progress(message);
-      };
-      const observedAsk: Ask = async (question, signal) => {
-        observer?.pause();
+  try {
+    const explore = createExploration(config.model, apiKey);
+    const observerAgent = config.observer.enabled
+      ? createObserver(config.model, config.observer, apiKey)
+      : undefined;
+    const mastra = new Mastra({
+      logger: false,
+      ...(observerAgent ? { agents: { observer: observerAgent.agent } } : {}),
+      workflows: {
+        default: createDefaultWorkflow({ explore }),
+      },
+    });
+    let closing: Promise<void> | undefined;
+    void router.exited.then((message) => {
+      if (!closing) controller.abort(new Error(message));
+    });
+    return {
+      signal: factorySignal,
+      run: async (
+        issue: unknown,
+        ask: Ask,
+        progress: (message: string) => void,
+        summary: (message: string) => void = progress,
+      ) => {
+        let observer: ReturnType<typeof createProgressObserver> | undefined;
+        const observe: Observe = (activity) => observer?.observe(activity);
+        const report = (message: string) => {
+          observe({ kind: 'stage', message });
+          progress(message);
+        };
+        const observedAsk: Ask = async (question, signal) => {
+          observer?.pause();
+          try {
+            return await ask(question, signal);
+          } finally {
+            observer?.resume();
+          }
+        };
         try {
-          return await ask(question, signal);
-        } finally {
-          observer?.resume();
-        }
-      };
-      try {
-        return await runDefault({
-          issue,
-          ask: observedAsk,
-          progress: report,
-          observe,
-          workflow: mastra.getWorkflow('default'),
-          signal: factorySignal,
-          timeoutMs: config.sessionTimeoutMs,
-          runtime: (runId, signal) => {
-            observer = observerAgent
-              ? createProgressObserver({
-                  summarize: observerAgent.summarize,
-                  emit: summary,
-                  intervalMs: config.observer.intervalMs,
-                  timeoutMs: config.observer.timeoutMs,
-                  signal,
-                })
-              : undefined;
-            return createDeliveryRuntime({
-              inspect: createProjectInspection(
-                config.model,
+          return await runDefault({
+            issue,
+            ask: observedAsk,
+            progress: report,
+            observe,
+            workflow: mastra.getWorkflow('default'),
+            signal: factorySignal,
+            timeoutMs: config.sessionTimeoutMs,
+            runtime: (runId, signal) => {
+              observer = observerAgent
+                ? createProgressObserver({
+                    summarize: observerAgent.summarize,
+                    emit: summary,
+                    intervalMs: config.observer.intervalMs,
+                    timeoutMs: config.observer.timeoutMs,
+                    signal,
+                  })
+                : undefined;
+              return createDeliveryRuntime({
+                inspect: createProjectInspection(
+                  config.model,
+                  apiKey,
+                  repository,
+                  observedAsk,
+                  observe,
+                ),
+                model: config.model,
                 apiKey,
-                repository,
-                observedAsk,
+                runId,
+                ask: observedAsk,
+                signal,
+                progress: report,
                 observe,
-              ),
-              model: config.model,
-              apiKey,
-              runId,
-              ask: observedAsk,
-              signal,
-              progress: report,
-              observe,
-            });
-          },
-        });
-      } finally {
-        // Abort without waiting for a slow observer; final output is authoritative.
-        observer?.close();
-      }
-    },
-    close: (): Promise<void> => {
-      if (!closing) {
-        controller.abort(new Error('The factory stopped.'));
-        closing = Promise.all([mastra.shutdown(), router.stop()]).then(
-          () => {},
-        );
-      }
-      return closing;
-    },
-  };
+              });
+            },
+          });
+        } finally {
+          // Abort without waiting for a slow observer; final output is authoritative.
+          observer?.close();
+        }
+      },
+      close: (): Promise<void> => {
+        if (!closing) {
+          controller.abort(new Error('The factory stopped.'));
+          closing = Promise.allSettled([router.stop(), mastra.shutdown()]).then(
+            (results) => {
+              for (const result of results)
+                if (result.status === 'rejected') throw result.reason;
+            },
+          );
+        }
+        return closing;
+      },
+    };
+  } catch (error) {
+    await router.stop();
+    throw error;
+  }
 }

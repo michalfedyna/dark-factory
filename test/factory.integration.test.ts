@@ -177,6 +177,30 @@ test('unexpected router exit aborts a pending issue prompt', async () => {
   }
 }, 20_000);
 
+test.each(['SIGTERM', 'SIGHUP', 'SIGKILL'] as const)(
+  'factory termination with %s leaves no owned proxy behind',
+  async (signal) => {
+    const run = await factory('responses', undefined, 'ignore-term');
+    try {
+      await vi.waitFor(
+        () => {
+          expect(run.stderr()).toContain('Issue\n');
+        },
+        { timeout: 10_000 },
+      );
+      run.child.kill(signal);
+      expect(await run.exit, run.stderr()).toEqual(
+        signal === 'SIGTERM' ? [130, null] : [null, signal],
+      );
+      expect(run.stdout()).toBe('');
+      await vi.waitFor(() => run.assertStopped(), { timeout: 5_000 });
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
+
 test.each(['issue', 'exploration', 'implementation'])(
   'cancellation stops the router and pending terminal input during %s',
   async (stage) => {

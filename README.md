@@ -81,8 +81,8 @@ terminal questions, not guessed defaults. After implementation approval it
 implements, checks, tests, reviews, and prepares a draft PR. Publication needs a
 separate approval; **Keep local** retains a verified candidate without pushing.
 Stdout contains only the final delivery result JSON, not the intermediate brief.
-Prompts, progress, diagnostics, and artifact paths go to stderr. The proxy child stops
-when the run ends.
+Prompts, progress, diagnostics, and artifact paths go to stderr. The managed proxy
+stops when the run ends, including cancellation, crashes, and forced factory termination.
 Ctrl+C or Escape cancels without treating silence as approval (exit code 130).
 
 For a built executable:
@@ -165,7 +165,10 @@ passed directly, without a shell.
 
 For an existing/remote endpoint, set `router.managed: false` and configure the
 model URL, protocol, and key. Managed URLs must be loopback addresses. The factory
-never stops a service it did not start. Unexpected proxy exits cancel active model
+never stops a service it did not start. A supervisor watches the factory connection
+and stops the owned proxy even if the factory is killed with SIGKILL. On macOS/Linux,
+cleanup covers the proxy's process group, including command wrappers; processes
+that ignore SIGTERM are killed after three seconds. Unexpected proxy exits cancel active model
 work and pending input. Proxy logs are not mixed into JSON; run the configured
 proxy command directly for its detailed diagnostics.
 

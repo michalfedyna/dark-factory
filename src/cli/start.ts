@@ -100,9 +100,15 @@ export async function startCommand(options: {
       throw error;
     }
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-    terminal.close();
-    await factory?.close();
+    try {
+      terminal.close();
+    } finally {
+      try {
+        await factory?.close();
+      } finally {
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+      }
+    }
   }
 }

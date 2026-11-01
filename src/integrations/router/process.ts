@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { FactoryConfig } from '../../config/schema.js';
+import { startManagedRouter } from './managed-process.js';
 
 const modelsSchema = z.object({ data: z.array(z.object({ id: z.string() })) });
 
@@ -46,50 +46,22 @@ export async function startRouter(
   }
 
   signal.throwIfAborted();
-  const child = config.router.managed
-    ? spawn(config.router.command, config.router.args, {
-        cwd: directory,
-        stdio: ['ignore', 'ignore', 'ignore'],
-        shell: false,
-      })
-    : null;
-  let stopped = false;
+  const managed = config.router.managed
+    ? startManagedRouter(config.router, directory)
+    : undefined;
   let failure: string | null = null;
-  const exited = new Promise<string>((resolve) => {
-    child?.once('error', (error) => {
-      failure = `Cannot start ${config.router.command}: ${error.message}. Install CLIProxyAPI and check router.command.`;
-      resolve(failure);
-    });
-    child?.once('exit', (code, signal) => {
-      failure = `CLIProxyAPI exited (${signal ?? String(code)}). Check config/router.yaml and run the router command directly for details.`;
-      resolve(failure);
-    });
+  const exited = managed?.exited ?? new Promise<string>(() => {});
+  void exited.then((message) => {
+    failure = message;
   });
-
-  const stop = async (): Promise<void> => {
-    if (
-      stopped ||
-      !child ||
-      child.exitCode !== null ||
-      child.signalCode !== null ||
-      !child.pid
-    )
-      return;
-    stopped = true;
-    child.kill('SIGTERM');
-    const deadline = new AbortController();
-    try {
-      await Promise.race([
-        exited,
-        delay(3_000, undefined, { signal: deadline.signal }).then(() => {
-          child.kill('SIGKILL');
-        }),
-      ]);
-      await exited;
-    } finally {
-      deadline.abort();
-    }
+  const stop = (): Promise<void> => {
+    signal.removeEventListener('abort', onAbort);
+    return managed?.stop() ?? Promise.resolve();
   };
+  const onAbort = () => {
+    void stop();
+  };
+  if (managed) signal.addEventListener('abort', onAbort, { once: true });
 
   try {
     const deadline = Date.now() + config.router.readyTimeoutMs;
@@ -120,6 +92,7 @@ export async function startRouter(
             ...new Set(models.data.map((model) => model.id)),
           ].sort();
           if (availableModels.includes(config.model.id)) {
+            signal.throwIfAborted();
             if (failure) throw new Error(failure);
             return { stop, exited };
           }
