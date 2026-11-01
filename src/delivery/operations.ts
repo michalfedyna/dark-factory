@@ -15,6 +15,7 @@ export interface DeliveryOperations {
   checks: (round: DeliveryRound, signal: AbortSignal) => Promise<DeliveryRound>;
   qa: (state: DeliveryState, signal: AbortSignal) => Promise<unknown>;
   sandboxQa: (state: DeliveryState, signal: AbortSignal) => Promise<unknown>;
+  followUpQa: (state: DeliveryState, signal: AbortSignal) => Promise<unknown>;
   validateQa: (
     state: DeliveryState,
     signal: AbortSignal,

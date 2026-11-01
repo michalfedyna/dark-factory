@@ -72,10 +72,16 @@ export function deliveryGate(state: DeliveryState): DeliveryState {
     round.qa?.verdict === 'blocked' ||
     round.review?.verdict === 'blocked' ||
     blocking.some((finding) => finding.kind !== 'defect');
+  const defects = blocking.filter(({ kind }) => kind === 'defect');
+  const prerequisites = blocking.filter(({ kind }) => kind !== 'defect');
+  const findingsReason =
+    defects.length && prerequisites.length
+      ? `Defects to repair:\n${defects.map(({ description }) => `- ${description}`).join('\n')}\n\nBlocked verification or decisions:\n${prerequisites.map(({ description }) => `- ${description}`).join('\n')}`
+      : blocking.map((finding) => finding.description).join('\n');
   const reason = passed
     ? ''
     : round.implementation.blockers.join('\n') ||
-      blocking.map((finding) => finding.description).join('\n') ||
+      findingsReason ||
       (requiresInput
         ? 'A question, scope change, or unavailable QA target requires user input.'
         : 'Acceptance QA and independent review have not both passed.');

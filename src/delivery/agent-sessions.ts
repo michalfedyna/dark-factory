@@ -153,34 +153,52 @@ export function createDeliveryAgents(
       round: RoundResources,
       state: DeliveryState,
       signal: AbortSignal,
+      phase: 'initial' | 'follow-up' = 'initial',
     ) => {
-      options.progress('Verifying acceptance criteria (browser/mobile)');
+      const followUp = phase === 'follow-up';
+      options.progress(
+        followUp
+          ? 'Verifying remaining visual criteria (browser/mobile)'
+          : 'Verifying acceptance criteria (browser/mobile)',
+      );
+      const qaSession = followUp ? round.followUpQaSession : round.qaSession;
+      if (!qaSession)
+        throw new Error('UI follow-up requires a fresh QA session.');
+      const context = qaContext(
+        state,
+        round.project,
+        round.evidence.records,
+        round.references,
+        phase,
+      );
       return withCleanup(
         async () => {
           try {
-            await round.qaSession.start(signal);
+            await qaSession.start(signal);
             const tools = createQaTools({
               project: round.project,
               automationSandbox: run.automationSandbox,
               evidence: round.evidence,
-              session: `${run.runId}-r${round.round}`,
+              session: `${run.runId}-r${round.round}${followUp ? '-follow-up' : ''}`,
               browserConfig: run.browserConfig,
               signal,
+              references: round.references,
+              phase,
             });
             const report = await qa({
-              context: qaContext(state, round.project, round.evidence.records),
+              context,
               tools,
               signal,
               ...observation,
             });
-            await round.qaSession.assertRunning();
+            await qaSession.assertRunning();
             return report;
           } catch (error) {
             signal.throwIfAborted();
             if (!(error instanceof QaTargetFailure)) throw error;
             return {
               verdict: 'changes-requested',
-              criteria: state.brief.acceptanceCriteria.map(({ id }) => ({
+              criteria: context.acceptanceCriteria.map(({ id }) => ({
                 id,
                 status: 'blocked',
                 evidenceIds: [error.evidence.id],
@@ -200,7 +218,7 @@ export function createDeliveryAgents(
             };
           }
         },
-        () => round.qaSession.close(),
+        () => qaSession.close(),
         (error) => recordCleanup('browser/mobile QA session', error),
       );
     },
@@ -217,6 +235,7 @@ export function createDeliveryAgents(
               state,
               round.project,
               round.evidence.records,
+              round.references,
             ),
             workspace: round.sandboxQaWorkspace,
             evidenceTool: createQaEvidenceTool(round.evidence),

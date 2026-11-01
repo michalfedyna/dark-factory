@@ -66,6 +66,7 @@ export interface QaToolOptions {
   session: string;
   browserConfig: string;
   signal: AbortSignal;
+  phase?: 'initial' | 'follow-up';
 }
 
 export async function prepareQaArguments(
@@ -156,6 +157,7 @@ export async function executeQaCommand(
       targetId: input.targetId,
       operation: input.operation,
       exitCode: result.exitCode,
+      ...(options.phase ? { qaPhase: options.phase } : {}),
     },
     {
       command: input.command,

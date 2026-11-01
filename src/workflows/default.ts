@@ -13,6 +13,7 @@ import {
   summarizeCandidate,
   verifyCandidate,
   verifySandboxCandidate,
+  verifyUiFollowUp,
   validateAcceptance,
 } from '../delivery/steps.js';
 import {
@@ -36,6 +37,7 @@ export function createDefaultWorkflow(dependencies: { explore: Explore }) {
     .then(deliveryStep('run-checks', checkCandidate))
     .then(deliveryStep('qa', verifyCandidate))
     .then(deliveryStep('sandbox-qa', verifySandboxCandidate))
+    .then(deliveryStep('ui-follow-up', verifyUiFollowUp))
     .then(deliveryStep('validate-qa', validateAcceptance))
     .then(deliveryStep('review', reviewCandidate))
     .then(

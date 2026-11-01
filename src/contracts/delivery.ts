@@ -5,6 +5,7 @@ import { figmaResultSchema, figmaSourceSchema } from './figma.js';
 
 const text = z.string().trim().min(1).max(16_000);
 const findingSchema = z.strictObject({
+  id: text.optional(),
   source: z.enum(['checks', 'qa', 'review']),
   kind: z.enum(['defect', 'scope-change', 'question']),
   severity: z.enum(['blocking', 'advisory']),
@@ -47,6 +48,21 @@ export const qaSchema = z.strictObject({
     )
     .min(1),
   findings: z.array(findingSchema),
+  resolvedQuestions: z
+    .array(
+      z.strictObject({
+        questionId: text,
+        evidenceIds: z.array(text).min(1),
+        notes: text,
+      }),
+    )
+    .optional(),
+  uiFollowUp: z
+    .strictObject({
+      criterionIds: z.array(text).min(1),
+      notes: text,
+    })
+    .optional(),
 });
 export const reviewSchema = z.strictObject({
   verdict: z.enum(['pass', 'changes-requested', 'blocked']),
@@ -63,6 +79,7 @@ const evidenceSchema = z.strictObject({
   id: text,
   revision: text,
   kind: z.enum(['check', 'browser', 'device', 'screenshot', 'sandbox']),
+  qaPhase: z.enum(['initial', 'follow-up']).optional(),
   targetId: text.nullable(),
   operation: text,
   exitCode: z.number().int(),
@@ -77,6 +94,7 @@ const roundSchema = z.strictObject({
   qa: qaSchema.nullable(),
   browserQa: qaSchema.optional(),
   sandboxQa: qaSchema.optional(),
+  followUpQa: qaSchema.optional(),
   review: reviewSchema.nullable(),
   findings: z.array(findingSchema),
 });

@@ -64,6 +64,20 @@ function sandboxWorkflow() {
                   exitCode: 0,
                   path: 'sandbox.json',
                 },
+                ...(round.followUpQa
+                  ? [
+                      {
+                        id: 'ui-follow-up',
+                        revision: round.revision,
+                        kind: 'device' as const,
+                        qaPhase: 'follow-up' as const,
+                        targetId: 'ios',
+                        operation: 'snapshot',
+                        exitCode: 0,
+                        path: 'follow-up.json',
+                      },
+                    ]
+                  : []),
               ]
             : round.evidence,
         },
@@ -83,7 +97,7 @@ test('browser/mobile QA completes before sandbox QA, which resolves only untesta
   expect(operations.qa.mock.invocationCallOrder[0]).toBeLessThan(
     operations.sandboxQa.mock.invocationCallOrder[0]!,
   );
-  expect(operations.sandboxQa.mock.calls[0]?.[0].history[0]?.qa).toEqual(
+  expect(operations.sandboxQa.mock.calls[0]?.[0].history[0]?.qa).toMatchObject(
     blocked,
   );
   const round = operations.review.mock.calls[0]?.[0].history[0];
@@ -130,6 +144,183 @@ test('unresolved sandbox QA remains blocked and cannot reach review or summary',
   await expect(run()).resolves.toMatchObject({ status: 'blocked', rounds: 1 });
   expect(operations.review).not.toHaveBeenCalled();
   expect(operations.summarize).not.toHaveBeenCalled();
+  expect(operations.followUpQa).not.toHaveBeenCalled();
+});
+
+function visualHandoff(observedDefect = false) {
+  const setup = sandboxWorkflow();
+  const initial = qaSchema.parse({
+    ...blocked,
+    criteria: observedDefect
+      ? [{ ...blocked.criteria[0]!, status: 'fail', evidenceIds: ['test'] }]
+      : blocked.criteria,
+    findings: [
+      {
+        ...blocked.findings[0],
+        description: 'Network calls are not observable.',
+      },
+      {
+        ...blocked.findings[0],
+        description: 'Native design comparison needs the reference.',
+      },
+      ...(observedDefect
+        ? [
+            {
+              source: 'qa',
+              kind: 'defect',
+              severity: 'blocking',
+              criterionId: 'AC1',
+              evidenceIds: ['test'],
+              description: 'Checkout control is visibly clipped.',
+            },
+          ]
+        : []),
+    ],
+  });
+  setup.operations.qa.mockResolvedValue(qaPass).mockResolvedValueOnce(initial);
+  setup.operations.sandboxQa.mockResolvedValue({
+    ...blocked,
+    findings: [],
+    resolvedQuestions: [
+      {
+        questionId: 'ui-1',
+        evidenceIds: ['sandbox-command'],
+        notes: 'Observed no service calls in the independent harness.',
+      },
+    ],
+    uiFollowUp: {
+      criterionIds: ['AC1'],
+      notes:
+        'Compare the native screen with design-1. The runtime harness cannot establish native appearance.',
+    },
+  });
+  setup.operations.followUpQa.mockResolvedValue({
+    ...qaPass,
+    criteria: [{ ...qaPass.criteria[0], evidenceIds: ['ui-follow-up'] }],
+    resolvedQuestions: [
+      {
+        questionId: 'ui-2',
+        evidenceIds: ['ui-follow-up'],
+        notes: 'Compared the candidate on-device with the supplied reference.',
+      },
+    ],
+  });
+  return { ...setup, initial };
+}
+
+test('targeted UI follow-up uses sandbox discoveries before the gate without losing an observed defect', async () => {
+  const { run, operations } = visualHandoff(true);
+  await expect(run()).resolves.toMatchObject({ status: 'ready', rounds: 2 });
+  expect(operations.followUpQa).toHaveBeenCalledOnce();
+  expect(operations.sandboxQa.mock.invocationCallOrder[0]).toBeLessThan(
+    operations.followUpQa.mock.invocationCallOrder[0]!,
+  );
+  expect(operations.followUpQa.mock.invocationCallOrder[0]).toBeLessThan(
+    operations.implement.mock.invocationCallOrder[1]!,
+  );
+  const repair = operations.implement.mock.calls[1]?.[0].history[0];
+  expect(repair?.qa).toMatchObject({
+    verdict: 'changes-requested',
+    criteria: [{ id: 'AC1', status: 'fail' }],
+    findings: [{ kind: 'defect' }],
+  });
+  expect(operations.review).toHaveBeenCalledOnce();
+});
+
+test('unresolved targeted UI follow-up remains blocked without repeating QA or authorizing review', async () => {
+  const { run, operations } = visualHandoff();
+  operations.followUpQa.mockResolvedValue({ ...blocked, findings: [] });
+  await expect(run()).resolves.toMatchObject({ status: 'blocked', rounds: 1 });
+  expect(operations.followUpQa).toHaveBeenCalledOnce();
+  expect(operations.implement).toHaveBeenCalledOnce();
+  expect(operations.review).not.toHaveBeenCalled();
+});
+
+test.each(['old-evidence', 'unknown-criterion', 'mutation'] as const)(
+  'unsafe UI follow-up cannot reach review (%s)',
+  async (scenario) => {
+    const { run, operations } = visualHandoff();
+    if (scenario === 'old-evidence')
+      operations.followUpQa.mockResolvedValue({
+        ...qaPass,
+        criteria: [{ ...qaPass.criteria[0], evidenceIds: ['test'] }],
+      });
+    if (scenario === 'unknown-criterion')
+      operations.sandboxQa.mockResolvedValue({
+        ...blocked,
+        uiFollowUp: { criterionIds: ['unknown'], notes: 'Invalid handoff.' },
+      });
+    if (scenario === 'mutation')
+      operations.assertUnchanged.mockImplementation(() =>
+        operations.followUpQa.mock.calls.length
+          ? Promise.reject(new Error('Candidate changed.'))
+          : Promise.resolve(),
+      );
+    await expect(run()).rejects.toThrow('Workflow failed');
+    expect(operations.review).not.toHaveBeenCalled();
+    expect(operations.finish).not.toHaveBeenCalled();
+    if (scenario === 'unknown-criterion')
+      expect(operations.followUpQa).not.toHaveBeenCalled();
+  },
+);
+
+test('question resolution removes only the verified portion of a still-blocked criterion', () => {
+  const initial = qaSchema.parse({
+    ...blocked,
+    findings: [
+      { ...blocked.findings[0], id: 'network' },
+      { ...blocked.findings[0], id: 'visual' },
+    ],
+  });
+  const fallback = qaSchema.parse({
+    ...blocked,
+    findings: [],
+    resolvedQuestions: [
+      {
+        questionId: 'network',
+        evidenceIds: ['sandbox-command'],
+        notes: 'Observed the network behavior.',
+      },
+    ],
+  });
+  const result = combineQaReports(initial, fallback);
+  expect(result).toMatchObject({
+    verdict: 'blocked',
+    findings: [{ id: 'visual' }],
+  });
+  const state = candidateState();
+  const round = state.history[0]!;
+  round.browserQa = initial;
+  round.sandboxQa = fallback;
+  round.qa = result;
+  const evidence = {
+    id: 'sandbox-command',
+    revision: round.revision,
+    kind: 'sandbox' as const,
+    targetId: null,
+    operation: 'execute-command',
+    exitCode: 0,
+    path: 'sandbox.json',
+  };
+  round.evidence.push(evidence);
+  expect(() => validateQa(state.brief, round, [])).not.toThrow();
+  evidence.exitCode = 1;
+  expect(() => validateQa(state.brief, round, [])).toThrow(
+    'successful current tester evidence',
+  );
+  evidence.exitCode = 0;
+  evidence.revision = 'old';
+  expect(() => validateQa(state.brief, round, [])).toThrow(
+    'successful current tester evidence',
+  );
+  expect(() =>
+    combineQaReports(initial, {
+      ...fallback,
+      resolvedQuestions: [
+        { ...fallback.resolvedQuestions![0]!, questionId: 'unknown' },
+      ],
+    }),
+  ).toThrow('only supplied');
 });
 
 test.each([
@@ -165,33 +356,37 @@ test('candidate mutations during sandbox QA invalidate verification', async () =
   expect(operations.review).not.toHaveBeenCalled();
 });
 
-test('cancelling pending sandbox QA closes the run and prevents late results reaching review', async () => {
-  const { run, options, operations, close } = sandboxWorkflow();
-  const controller = new AbortController();
-  options.signal = controller.signal;
-  let started = () => {};
-  const ready = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  let complete: (value: unknown) => void = () => {};
-  operations.sandboxQa.mockImplementation(() => {
-    started();
-    return new Promise((resolve) => {
-      complete = resolve;
+test.each(['sandboxQa', 'followUpQa'] as const)(
+  'cancelling pending %s closes the run and prevents late results reaching review',
+  async (stage) => {
+    const { run, options, operations, close } =
+      stage === 'sandboxQa' ? sandboxWorkflow() : visualHandoff();
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    let started = () => {};
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
     });
-  });
-  const running = run();
-  await ready;
-  controller.abort(new Error('Stopped by user.'));
-  await expect(running).rejects.toThrow('Stopped by user.');
-  complete(sandboxPass);
-  await new Promise<void>((resolve) => {
-    setImmediate(resolve);
-  });
-  expect(operations.review).not.toHaveBeenCalled();
-  expect(operations.finish).not.toHaveBeenCalled();
-  expect(close).toHaveBeenCalledOnce();
-});
+    let complete: (value: unknown) => void = () => {};
+    operations[stage].mockImplementation(() => {
+      started();
+      return new Promise((resolve) => {
+        complete = resolve;
+      });
+    });
+    const running = run();
+    await ready;
+    controller.abort(new Error('Stopped by user.'));
+    await expect(running).rejects.toThrow('Stopped by user.');
+    complete(sandboxPass);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(operations.review).not.toHaveBeenCalled();
+    expect(operations.finish).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
 
 test('handoff preserves UI passes, failures, defects, and unrelated global blockers', () => {
   const browserQa = qaSchema.parse({
@@ -211,29 +406,63 @@ test('handoff preserves UI passes, failures, defects, and unrelated global block
         description: 'Observed a broken UI.',
         evidenceIds: ['test'],
       },
+      { ...blocked.findings[0], id: 'ui-question', criterionId: 'AC3' },
     ],
   });
   expect(needsSandboxQa(browserQa, [])).toBe(true);
-  const result = combineQaReports(browserQa, sandboxPass);
+  const partialPass = qaSchema.parse({
+    ...sandboxPass,
+    criteria: [
+      ...sandboxPass.criteria,
+      { ...sandboxPass.criteria[0], id: 'AC3' },
+    ],
+  });
+  const result = combineQaReports(browserQa, partialPass);
   expect(result.criteria.map(({ status }) => status)).toEqual([
     'pass',
     'pass',
     'fail',
   ]);
-  expect(result.criteria.slice(1)).toEqual(browserQa.criteria.slice(1));
-  expect(result.findings).toEqual(browserQa.findings.slice(1));
+  expect(result.criteria[1]).toEqual(browserQa.criteria[1]);
+  expect(result.criteria[2]).toMatchObject({
+    id: 'AC3',
+    status: 'fail',
+    evidenceIds: ['test', 'sandbox-command'],
+  });
+  expect(result.findings).toEqual([browserQa.findings[1]]);
   expect(result.verdict).toBe('changes-requested');
+  const scopeChange = {
+    ...blocked.findings[0]!,
+    id: 'scope-change',
+    kind: 'scope-change' as const,
+  };
+  browserQa.findings.push(scopeChange);
+  const scoped = combineQaReports(browserQa, partialPass);
+  expect(scoped.verdict).toBe('blocked');
+  expect(scoped.findings).toContainEqual(scopeChange);
+  expect(() =>
+    combineQaReports(browserQa, {
+      ...partialPass,
+      resolvedQuestions: [
+        {
+          questionId: 'scope-change',
+          evidenceIds: ['sandbox-command'],
+          notes: 'Cannot authorize scope changes.',
+        },
+      ],
+    }),
+  ).toThrow('only supplied');
   browserQa.findings.push({ ...blocked.findings[0]!, criterionId: null });
-  expect(combineQaReports(browserQa, sandboxPass).verdict).toBe('blocked');
+  expect(combineQaReports(browserQa, partialPass).verdict).toBe('blocked');
   expect(() =>
     combineQaReports(
       browserQa,
       qaSchema.parse({
-        ...sandboxPass,
-        criteria: [...sandboxPass.criteria, browserQa.criteria[1]],
+        ...partialPass,
+        criteria: [...partialPass.criteria, browserQa.criteria[1]],
       }),
     ),
-  ).toThrow('only blocked');
+  ).toThrow('only pending');
 });
 
 test('a crashed candidate server returns to implementation instead of sandbox escalation', () => {

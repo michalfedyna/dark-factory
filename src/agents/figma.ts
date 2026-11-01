@@ -30,6 +30,7 @@ Read and scaffold:
 - Use variables when access permits. If that endpoint is restricted, use resolved styles/node values and document the limitation; never invent inaccessible token values. Versioned links pin file/node/render data only; library metadata and variables are current, so do not silently treat them as historical values.
 - Do not repeatedly retry authentication, permission, missing-node or rate-limit errors. Report required-source failures as blockers; optional metadata failures are limitations when the UI can still be faithfully scaffolded.
 - Download needed exported assets into the repository using unauthenticated asset URLs; do not leave expiring Figma CDN URLs in shipped UI. Do not flatten entire screens into images.
+- Save canonical reference screen PNGs in docs/design with descriptive filenames. The controller snapshots these images for later constrained visual QA; document their source nodes in the handoff.
 
 UI-only boundary:
 - Use typed props, callback interfaces and clearly labeled sample content. Leave data loading, API calls, authentication, domain validation, persistence, routing behavior and state management to implementation. Do not add fake successful interactions or business logic.

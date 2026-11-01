@@ -8,7 +8,7 @@ export function requestRole({ payload }) {
   if (payload?.library) return 'documentation';
   if (payload?.events) return 'observer';
   if (payload?.patch !== undefined) return 'review';
-  if (payload?.blockedCriteria) return 'sandbox-qa';
+  if (payload?.pendingCriteria) return 'sandbox-qa';
   if (payload?.sources && payload?.allowedPaths) return 'figma';
   if (payload?.allowedPaths) return 'implementation';
   if (payload?.targets) return 'qa';
@@ -286,6 +286,7 @@ export function scenarioReply(request, resultPath, mode) {
         };
   if (role === 'sandbox-qa') {
     const failed = mode === 'delivery-sandbox-qa-repair' && prefix === 'r1';
+    const followUp = mode === 'delivery-sandbox-qa-follow-up';
     const actions = [
       {
         name: 'mastra_workspace_execute_command',
@@ -298,31 +299,65 @@ export function scenarioReply(request, resultPath, mode) {
     if (toolResults < actions.length) return { tool: actions[toolResults] };
     return {
       result: {
-        verdict: failed ? 'changes-requested' : 'pass',
+        verdict: followUp ? 'blocked' : failed ? 'changes-requested' : 'pass',
         criteria: payload.acceptanceCriteria.map(({ id }) => ({
           id,
-          status: failed ? 'fail' : 'pass',
+          status: followUp ? 'blocked' : failed ? 'fail' : 'pass',
           evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
           notes: 'Observed the candidate through a sandbox command.',
         })),
-        findings: failed
+        ...(followUp
+          ? {
+              resolvedQuestions: [
+                {
+                  questionId: payload.questions[0].id,
+                  evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
+                  notes: 'Observed the sandbox behavior.',
+                },
+              ],
+              uiFollowUp: {
+                criterionIds: ['AC1'],
+                notes: `Compare the running native screen with ${payload.references[0].id}.`,
+              },
+            }
+          : {}),
+        findings: followUp
           ? [
               {
                 source: 'qa',
-                kind: 'defect',
+                kind: 'question',
                 severity: 'blocking',
                 criterionId: 'AC1',
-                description:
-                  'The sandbox behavior check failed. Repair the candidate.',
-                evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
+                description: 'Native visual comparison remains.',
+                evidenceIds: [],
               },
             ]
-          : [],
+          : failed
+            ? [
+                {
+                  source: 'qa',
+                  kind: 'defect',
+                  severity: 'blocking',
+                  criterionId: 'AC1',
+                  description:
+                    'The sandbox behavior check failed. Repair the candidate.',
+                  evidenceIds: [`${prefix}-e${payload.evidence.length + 1}`],
+                },
+              ]
+            : [],
       },
     };
   }
   if (role === 'qa') {
     const actions = [
+      ...(payload.references?.length
+        ? [
+            {
+              name: 'qa_reference',
+              args: { referenceId: payload.references[0].id },
+            },
+          ]
+        : []),
       {
         name: 'agent_browser',
         args: { targetId: 'web', operation: 'open', args: [] },
@@ -385,11 +420,13 @@ export function scenarioReply(request, resultPath, mode) {
         name: 'agent_device',
         args: { targetId: 'ios', operation: 'screenshot', args: [] },
       },
-    ].filter((action) =>
-      payload.targets.some((target) => target.id === action.args.targetId),
+    ].filter(
+      (action) =>
+        action.name === 'qa_reference' ||
+        payload.targets.some((target) => target.id === action.args.targetId),
     );
     const failed = mode === 'delivery-qa-repair' && prefix === 'r1';
-    const blocked = mode.startsWith('delivery-sandbox-qa');
+    const blocked = mode.startsWith('delivery-sandbox-qa') && !payload.followUp;
     return toolResults < actions.length
       ? { tool: actions[toolResults] }
       : {
@@ -405,10 +442,12 @@ export function scenarioReply(request, resultPath, mode) {
                 status: blocked ? 'blocked' : failed ? 'fail' : 'pass',
                 evidenceIds: [
                   ...payload.evidence.map((record) => record.id),
-                  ...actions.map(
-                    (_, index) =>
-                      `${prefix}-e${payload.evidence.length + index + 1}`,
-                  ),
+                  ...actions
+                    .filter((action) => action.name !== 'qa_reference')
+                    .map(
+                      (_, index) =>
+                        `${prefix}-e${payload.evidence.length + index + 1}`,
+                    ),
                 ],
                 notes: 'Offline test checks and stub UI journeys completed.',
               },

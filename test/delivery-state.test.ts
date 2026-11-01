@@ -3,7 +3,7 @@ import {
   deliveryStateSchema,
   type DeliveryState,
 } from '../src/contracts/delivery.js';
-import { applyReview } from '../src/delivery/policy.js';
+import { applyReview, deliveryGate } from '../src/delivery/policy.js';
 import { currentRound, replaceRound } from '../src/delivery/state.js';
 import { reviewCandidate, verifyCandidate } from '../src/delivery/steps.js';
 import { candidateState } from './fixtures/delivery.js';
@@ -81,6 +81,35 @@ test('review findings and fallback blockers are applied without mutating history
   expect(currentRound(next).findings).toMatchObject([
     { source: 'review', severity: 'blocking' },
   ]);
+});
+
+test('a mixed blocked result separates repairable defects from unresolved prerequisites without weakening the gate', () => {
+  const state = candidateState();
+  const round = currentRound(state);
+  round.qa = { ...qaPass, verdict: 'blocked' } as NonNullable<typeof round.qa>;
+  round.findings = [
+    {
+      source: 'qa',
+      kind: 'defect',
+      severity: 'blocking',
+      description: 'Checkout is clipped.',
+      criterionId: 'AC1',
+      evidenceIds: ['test'],
+    },
+    {
+      source: 'qa',
+      kind: 'question',
+      severity: 'blocking',
+      description: 'The required device is unavailable.',
+      criterionId: 'AC1',
+      evidenceIds: [],
+    },
+  ];
+  expect(deliveryGate(state)).toMatchObject({
+    status: 'blocked',
+    reason:
+      'Defects to repair:\n- Checkout is clipped.\n\nBlocked verification or decisions:\n- The required device is unavailable.',
+  });
 });
 
 test('candidate mutations during review invalidate approval', async () => {

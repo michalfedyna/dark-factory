@@ -24,6 +24,7 @@ import {
   uiProjectPlan,
 } from './fixtures/delivery.js';
 import { qaPass, reviewPass } from './fixtures/workflow.js';
+import { figmaResult, figmaSource } from './fixtures/figma.js';
 
 function verifiedState() {
   const state = candidateState();
@@ -134,16 +135,34 @@ test('repairs receive latest findings and failed criterion notes, never historic
     expect(prompt).not.toContain(excluded);
 });
 
-test('QA receives criteria, constraints, target addresses and current evidence metadata without file paths', () => {
+test('QA receives requirements, design references, targets and current evidence without repository access', () => {
   const state = candidateState();
+  state.figma = { sources: [figmaSource], result: figmaResult };
   state.brief.constraints = ['Use local test accounts.'];
   const evidence = currentRound(state).evidence;
   const project = { ...projectPlan, ...uiProjectPlan };
-  const context = qaContext(state, project, [
-    ...evidence,
-    { ...evidence[0]!, id: 'old', revision: 'old-revision' },
-  ]);
+  const references = [
+    {
+      id: 'design-1',
+      name: 'shipping.png',
+      path: 'docs/design/shipping.png',
+      image: 'private-image-bytes',
+    },
+  ];
+  const context = qaContext(
+    state,
+    project,
+    [...evidence, { ...evidence[0]!, id: 'old', revision: 'old-revision' }],
+    references,
+  );
   expect(context).toEqual({
+    requirements: state.brief.requirements,
+    references: [{ id: 'design-1', name: 'shipping.png' }],
+    design: {
+      sources: [figmaSource.url],
+      summary: figmaResult.summary,
+      limitations: figmaResult.limitations,
+    },
     acceptanceCriteria: state.brief.acceptanceCriteria,
     constraints: ['Use local test accounts.'],
     targets: [
@@ -179,7 +198,7 @@ test('QA receives criteria, constraints, target addresses and current evidence m
   });
 });
 
-test('sandbox QA receives only blocked criteria, their reasons, the plan, and current evidence', () => {
+test('sandbox QA receives unresolved portions, including questions on failed criteria, without unrelated passes', () => {
   const state = candidateState();
   const round = currentRound(state);
   state.brief.acceptanceCriteria.push({
@@ -204,7 +223,23 @@ test('sandbox QA receives only blocked criteria, their reasons, the plan, and cu
     { ...round.evidence[0]!, id: 'old', revision: 'old' },
   ]);
   expect(context.acceptanceCriteria.map(({ id }) => id)).toEqual(['AC2']);
-  expect(context.blockedCriteria).toEqual([round.qa.criteria[1]]);
+  expect(context.pendingCriteria).toEqual([round.qa.criteria[1]]);
+  round.qa.criteria[1] = {
+    ...round.qa.criteria[1]!,
+    status: 'fail',
+    evidenceIds: ['test'],
+  };
+  round.qa.findings.push({
+    ...finding('Reference comparison is still needed.'),
+    id: 'ui-1',
+    kind: 'question',
+    criterionId: 'AC2',
+  });
+  expect(sandboxQaContext(state, projectPlan, round.evidence)).toMatchObject({
+    pendingCriteria: [expect.objectContaining({ id: 'AC2', status: 'fail' })],
+    questions: [expect.objectContaining({ id: 'ui-1', criterionId: 'AC2' })],
+    requirements: state.brief.requirements,
+  });
   expect(context.verification).toEqual(round.implementation.verification);
   expect(context.evidence).toEqual([
     expect.objectContaining({ id: 'test', path: 'test.json' }),
@@ -215,8 +250,57 @@ test('sandbox QA receives only blocked criteria, their reasons, the plan, and cu
   );
   round.qa = qaSchema.parse(qaPass);
   expect(() => sandboxQaContext(state, projectPlan, [])).toThrow(
-    'requires blocked',
+    'requires pending',
   );
+});
+
+test('UI follow-up receives only requested unresolved criteria and actionable sandbox context', () => {
+  const state = candidateState();
+  state.brief.acceptanceCriteria.push({
+    ...state.brief.acceptanceCriteria[0]!,
+    id: 'AC2',
+  });
+  const round = currentRound(state);
+  round.qa = qaSchema.parse({
+    ...qaPass,
+    verdict: 'blocked',
+    criteria: [
+      ...qaPass.criteria,
+      { ...qaPass.criteria[0], id: 'AC2', status: 'blocked' },
+    ],
+    findings: [
+      {
+        ...finding('Compare the native layout.'),
+        id: 'ui-1',
+        kind: 'question',
+        criterionId: 'AC2',
+        evidenceIds: [],
+      },
+    ],
+  });
+  round.sandboxQa = {
+    ...round.qa,
+    uiFollowUp: {
+      criterionIds: ['AC2'],
+      notes:
+        'Use design-1; the runtime harness cannot compare native appearance.',
+    },
+  };
+  const context = qaContext(
+    state,
+    projectPlan,
+    round.evidence,
+    [],
+    'follow-up',
+  );
+  expect(context.acceptanceCriteria.map(({ id }) => id)).toEqual(['AC2']);
+  expect(context.followUp).toMatchObject({
+    notes: round.sandboxQa.uiFollowUp?.notes,
+    criteria: [{ id: 'AC2' }],
+    questions: [{ id: 'ui-1', criterionId: 'AC2' }],
+  });
+  for (const record of context.evidence)
+    expect(record).not.toHaveProperty('path');
 });
 
 test('review receives the patch, current evidence and only the last relevant review feedback', () => {

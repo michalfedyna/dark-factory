@@ -59,6 +59,9 @@ authorizes publication of verification screenshots.
 The final result is JSON on stdout; prompts and diagnostics go to stderr.
 Run artifacts are saved under `.darkfactory/runs/` in the target repository.
 
+Visual QA can use reference PNGs in `docs/design/`. Mixed blocked results list
+repairable defects separately from unresolved verification or scope decisions.
+
 The Figma UI and implementation agents can call `test` while working. They supply
 a runnable web/native target and focused testing instructions. A constrained
 browser/device tester returns observed behavior and up to four screenshots, or
@@ -97,6 +100,9 @@ isolation, or use a disposable remote/container environment for untrusted code.
 Keep `.darkfactory/` and debug logs private; they may contain sensitive data.
 
 ## Development
+
+See [developer documentation](docs/development.md) for QA orchestration and safety
+boundaries.
 
 ```sh
 npm run dev -- start  # Run without building

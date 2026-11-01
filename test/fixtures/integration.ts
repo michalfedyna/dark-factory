@@ -10,7 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
 import type { FactoryConfig } from '../../src/config/schema.js';
@@ -70,7 +70,7 @@ export async function installPublicationAutomation(
 
 export async function createTestRepository(
   directory: string,
-  files: Record<string, string>,
+  files: Record<string, string | Uint8Array>,
   githubRemote?: string,
 ) {
   const source = join(directory, 'source');
@@ -93,8 +93,10 @@ export async function createTestRepository(
   await git(['config', 'user.name', 'Test']);
   await git(['config', 'user.email', 'test@example.com']);
   if (githubRemote) await git(['remote', 'add', 'origin', githubRemote]);
-  for (const [path, content] of Object.entries(files))
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(source, path)), { recursive: true });
     await writeFile(join(source, path), content);
+  }
   await git(['add', '.']);
   await git(['commit', '-m', 'initial']);
   const base = (await git(['rev-parse', 'HEAD'])).trim();

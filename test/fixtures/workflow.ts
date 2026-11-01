@@ -88,6 +88,9 @@ export function createWorkflowSetup(
         status: 'blocked',
       })),
     }),
+    followUpQa: vi
+      .fn<DeliveryOperations['followUpQa']>()
+      .mockResolvedValue(qaPass),
     validateQa: vi
       .fn<DeliveryOperations['validateQa']>()
       .mockImplementation((state, _signal, phase) =>

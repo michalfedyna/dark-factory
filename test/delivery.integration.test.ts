@@ -17,7 +17,7 @@ import {
   deliveryStateSchema,
 } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
-import { uiProjectPlan } from './fixtures/delivery.js';
+import { uiProjectPlan, png } from './fixtures/delivery.js';
 import {
   createTestRepository,
   availablePort,
@@ -39,6 +39,7 @@ test.each([
   ['responses', 'delivery-sandbox-qa', 1, undefined],
   ['responses', 'delivery-sandbox-qa-cli', 1, undefined],
   ['responses', 'delivery-sandbox-qa-repair', 2, undefined],
+  ['responses', 'delivery-sandbox-qa-follow-up', 1, undefined],
   ['responses', 'delivery-check-repair', 2, undefined],
   ['responses', 'delivery-server-repair', 2, undefined],
   ['chat', 'delivery-review-repair', 2, undefined],
@@ -56,6 +57,9 @@ test.each([
         directory,
         {
           'original.txt': 'original',
+          ...(mode === 'delivery-sandbox-qa-follow-up'
+            ? { 'docs/design/shipping.png': png }
+            : {}),
           'package.json': JSON.stringify({
             name: 'test-project',
             scripts: {
@@ -173,7 +177,14 @@ test.each([
         );
       const expectedFields: Record<string, string[]> = {
         implementation: ['task', 'allowedPaths', 'checks', 'repair'],
-        qa: ['acceptanceCriteria', 'constraints', 'targets', 'evidence'],
+        qa: [
+          'requirements',
+          'acceptanceCriteria',
+          'constraints',
+          'references',
+          'targets',
+          'evidence',
+        ],
         review: [
           'task',
           'allowedPaths',
@@ -194,10 +205,13 @@ test.each([
       };
       if (mode.startsWith('delivery-sandbox-qa'))
         expectedFields['sandbox-qa'] = [
+          'requirements',
           'acceptanceCriteria',
           'constraints',
           'verification',
-          'blockedCriteria',
+          'pendingCriteria',
+          'questions',
+          'references',
           'evidence',
         ];
       for (const [role, fields] of Object.entries(expectedFields)) {
@@ -205,7 +219,12 @@ test.each([
         expect(requests.length, `Missing ${role} request`).toBeGreaterThan(0);
         for (const request of requests)
           expect(Object.keys(request.payload ?? {}).sort()).toEqual(
-            [...fields].sort(),
+            [
+              ...fields,
+              ...(role === 'qa' && request.payload?.followUp
+                ? ['followUp']
+                : []),
+            ].sort(),
           );
         for (const request of requests)
           expect(request.tools).not.toContain('ask');
@@ -217,7 +236,13 @@ test.each([
         expect(request.tools.sort()).toEqual(
           mode === 'delivery-sandbox-qa-cli'
             ? []
-            : ['agent_browser', 'agent_device'],
+            : [
+                'agent_browser',
+                'agent_device',
+                ...(mode === 'delivery-sandbox-qa-follow-up'
+                  ? ['qa_reference']
+                  : []),
+              ],
         );
         for (const record of request.payload?.evidence as object[])
           expect(record).not.toHaveProperty('path');
@@ -341,7 +366,9 @@ test.each([
           ? 0
           : mode === 'delivery-responsive'
             ? 3
-            : 2,
+            : mode === 'delivery-sandbox-qa-follow-up'
+              ? 4
+              : 2,
       );
       const persisted = await readFile(
         join(result.runDirectory, 'state.json'),
@@ -351,7 +378,22 @@ test.each([
         const state = deliveryStateSchema.parse(JSON.parse(persisted));
         const round = state.history.at(-1)!;
         expect(round.browserQa?.verdict).toBe('blocked');
-        expect(round.sandboxQa?.verdict).toBe('pass');
+        expect(round.sandboxQa?.verdict).toBe(
+          mode === 'delivery-sandbox-qa-follow-up' ? 'blocked' : 'pass',
+        );
+        if (mode === 'delivery-sandbox-qa-follow-up') {
+          expect(round.followUpQa?.verdict).toBe('pass');
+          expect(round.qa?.findings).toEqual([]);
+          expect(round.evidence).toContainEqual(
+            expect.objectContaining({ kind: 'device', qaPhase: 'follow-up' }),
+          );
+          expect(execution).toContainEqual(
+            expect.objectContaining({
+              step: 'ui-follow-up',
+              status: 'completed',
+            }),
+          );
+        }
         expect(round.qa?.verdict).toBe('pass');
         expect(round.evidence).toContainEqual(
           expect.objectContaining({ kind: 'sandbox', exitCode: 0 }),

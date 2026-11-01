@@ -15,7 +15,7 @@ test.each([
   ['responses', false],
   ['responses', true],
 ] as const)(
-  'QA sends screenshots as image input (%s, streaming: %s)',
+  'QA sends candidate screenshots and supplied references as image input (%s, streaming: %s)',
   async (api, streaming) => {
     const provider = await createModelProvider(api, 'delivery');
     vi.spyOn(globalThis, 'fetch').mockImplementation(provider.modelFetch);
@@ -42,12 +42,22 @@ test.each([
       'candidate',
       1,
     );
+    const reference = {
+      id: 'design-1',
+      name: 'shipping.png',
+      path: 'docs/design/shipping.png',
+      image: Buffer.concat([png, Buffer.from('design-reference')]).toString(
+        'base64',
+      ),
+    };
     try {
       const report = await createQa(
         provider.config.model,
         'test-key',
       )({
         context: {
+          requirements: brief.requirements,
+          references: [{ id: reference.id, name: reference.name }],
           acceptanceCriteria: brief.acceptanceCriteria,
           constraints: [],
           targets: project.targets,
@@ -60,6 +70,7 @@ test.each([
           session: 'run-r1',
           browserConfig: join(provider.directory, 'browser.json'),
           signal: provider.controller.signal,
+          references: [reference],
         }),
         signal: provider.controller.signal,
         ...(streaming ? { observe: () => {} } : {}),
@@ -68,6 +79,7 @@ test.each([
       const wire = JSON.stringify(provider.modelRequests);
       expect(wire).toMatch(/"type":"(?:image_url|input_image)"/);
       expect(wire).toContain(`data:image/png;base64,${png.toString('base64')}`);
+      expect(wire).toContain(`data:image/png;base64,${reference.image}`);
       expect(evidence.records).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: 'screenshot', exitCode: 0 }),

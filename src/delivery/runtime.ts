@@ -22,12 +22,12 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
     implement: (state, signal) =>
       agents.implement(environment.requireRun(), state, signal),
     capture: (signal) => environment.requireRun().repository.capture(signal),
-    checks: (round, signal) => {
+    checks: async (round, signal) => {
       const run = environment.requireRun();
       options.progress('Running checks');
       return runChecks(
         run,
-        environment.beginRound(round),
+        await environment.beginRound(round),
         round,
         signal,
         options.observe,
@@ -46,6 +46,16 @@ export function createDeliveryRuntime(options: DeliveryOptions) {
         state,
         signal,
       ),
+    followUpQa: (state, signal) => {
+      environment.createFollowUpQaSession(currentRound(state));
+      return agents.qa(
+        environment.requireRun(),
+        environment.requireRound(currentRound(state)),
+        state,
+        signal,
+        'follow-up',
+      );
+    },
     validateQa: (state, _signal, phase) => {
       const round = currentRound(state);
       const resources = environment.requireRound(round);

@@ -18,6 +18,8 @@ import type {
 } from '../contracts/delivery.js';
 import type { Project, VerificationProject } from '../contracts/project.js';
 import { currentRound } from './state.js';
+import { pendingQaCriteria, uiFollowUpCriteria } from './qa-handoff.js';
+import type { QaReference } from './qa-references.js';
 
 function repairFinding(finding: Finding): RepairFinding {
   return {
@@ -69,11 +71,47 @@ export function qaContext(
   state: DeliveryState,
   project: VerificationProject,
   evidence: Evidence[],
+  references: QaReference[] = [],
+  phase: 'initial' | 'follow-up' = 'initial',
 ): QaContext {
   const round = currentRound(state);
+  const followUp = phase === 'follow-up';
+  const criterionIds = followUp ? uiFollowUpCriteria(round) : null;
+  const followUpRequest = round.sandboxQa?.uiFollowUp;
+  if (followUp && (!criterionIds?.length || !followUpRequest || !round.qa))
+    throw new Error('UI follow-up requires unresolved criteria.');
   return {
-    acceptanceCriteria: state.brief.acceptanceCriteria,
+    requirements: state.brief.requirements,
+    acceptanceCriteria: state.brief.acceptanceCriteria.filter(
+      ({ id }) => !criterionIds || criterionIds.includes(id),
+    ),
     constraints: state.brief.constraints,
+    ...(state.figma?.result
+      ? {
+          design: {
+            sources: state.figma.sources.map(({ url }) => url),
+            summary: state.figma.result.summary,
+            limitations: state.figma.result.limitations,
+          },
+        }
+      : {}),
+    references: references.map(({ id, name }) => ({ id, name })),
+    ...(criterionIds && round.qa && followUpRequest
+      ? {
+          followUp: {
+            notes: followUpRequest.notes,
+            criteria: round.qa.criteria.filter(({ id }) =>
+              criterionIds.includes(id),
+            ),
+            questions: round.qa.findings.filter(
+              (finding) =>
+                finding.kind === 'question' &&
+                finding.criterionId !== null &&
+                criterionIds.includes(finding.criterionId),
+            ),
+          },
+        }
+      : {}),
     targets: project.targets.map((target) =>
       target.kind === 'web'
         ? {
@@ -107,21 +145,28 @@ export function sandboxQaContext(
   state: DeliveryState,
   project: VerificationProject,
   evidence: Evidence[],
+  references: QaReference[] = [],
 ): SandboxQaContext {
   const round = currentRound(state);
   if (!round.qa) throw new Error('Sandbox QA requires browser/mobile QA.');
-  const blockedCriteria = round.qa.criteria.filter(
-    (criterion) => criterion.status === 'blocked',
-  );
-  if (!blockedCriteria.length)
-    throw new Error('Sandbox QA requires blocked acceptance criteria.');
+  const pendingCriteria = pendingQaCriteria(round.qa);
+  if (!pendingCriteria.length)
+    throw new Error('Sandbox QA requires pending acceptance criteria.');
   return {
+    requirements: state.brief.requirements,
     acceptanceCriteria: state.brief.acceptanceCriteria.filter((criterion) =>
-      blockedCriteria.some((blocked) => blocked.id === criterion.id),
+      pendingCriteria.some((pending) => pending.id === criterion.id),
     ),
     constraints: state.brief.constraints,
     verification: { checks: project.checks, targets: project.targets },
-    blockedCriteria,
+    pendingCriteria,
+    questions: round.qa.findings.filter(
+      (finding) =>
+        finding.kind === 'question' &&
+        finding.criterionId !== null &&
+        pendingCriteria.some(({ id }) => id === finding.criterionId),
+    ),
+    references: references.map(({ id, name, path }) => ({ id, name, path })),
     evidence: evidenceReferences(
       evidence.filter((record) => record.revision === round.revision),
     ),

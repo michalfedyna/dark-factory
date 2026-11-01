@@ -20,6 +20,7 @@ import { createEvidence } from './evidence.js';
 import { createQaSession } from './qa-session.js';
 import { prepareProject } from './preparation.js';
 import { recordSandboxQaCommands } from './sandbox-qa-evidence.js';
+import { loadQaReferences } from './qa-references.js';
 import { cleanupAll, withCleanup } from '../diagnostics/cleanup.js';
 
 /** Owns live resources, including resources acquired before setup completes. */
@@ -87,7 +88,26 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         );
       return round;
     },
-    beginRound: (candidate: DeliveryRound): RoundResources => {
+    createFollowUpQaSession: (candidate: DeliveryRound) => {
+      const run = requireRun();
+      if (
+        !round ||
+        round.revision !== candidate.revision ||
+        round.round !== candidate.round ||
+        round.followUpQaSession
+      )
+        throw new Error(
+          'UI follow-up requires the current round and a fresh session.',
+        );
+      const projectSandbox = own(new LocalSandbox(run.projectSandboxOptions));
+      round.followUpQaSession = createQaSession(
+        { ...run, projectSandbox },
+        round.project,
+        `${run.runId}-r${candidate.round}-follow-up`,
+        round.evidence,
+      );
+    },
+    beginRound: async (candidate: DeliveryRound): Promise<RoundResources> => {
       const run = requireRun();
       const project = {
         ...run.project,
@@ -98,6 +118,9 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
         candidate.revision,
         candidate.round,
       );
+      const references = await loadQaReferences(run.repository.path);
+      lifetime.signal.throwIfAborted();
+      options.signal.throwIfAborted();
       run.reviewFiles.setAllowedPaths([evidence.directory]);
       const sandboxQaSandbox = own(new LocalSandbox(run.projectSandboxOptions));
       recordSandboxQaCommands(sandboxQaSandbox, evidence);
@@ -120,6 +143,7 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
           evidence,
         ),
         sandboxQaWorkspace,
+        references,
       };
       return round;
     },
@@ -247,7 +271,14 @@ export function createDeliveryEnvironment(options: DeliveryOptions) {
           resources.clear();
           await withCleanup(
             async () => {
-              await round?.qaSession.close();
+              await cleanupAll([
+                async () => {
+                  await round?.qaSession.close();
+                },
+                async () => {
+                  await round?.followUpQaSession?.close();
+                },
+              ]);
             },
             () => cleanupAll(owned.map((resource) => () => resource.destroy())),
             (error) => artifacts.cleanup('environment resources', error),

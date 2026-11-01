@@ -191,7 +191,7 @@ describe('default workflow delivery stages', () => {
     expect(operations.review).toHaveBeenCalledOnce();
     expect(
       operations.implement.mock.calls[1]?.[0].history[0]?.findings,
-    ).toContainEqual(finding());
+    ).toContainEqual(expect.objectContaining(finding()));
   });
   test('routes review defects back to implementation and invalidates prior QA and review', async () => {
     const { run, operations } = setup();

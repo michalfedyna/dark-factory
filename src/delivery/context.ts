@@ -11,6 +11,7 @@ import type { RunRepository } from '../integrations/git/repository.js';
 import type { inspectRepository } from '../integrations/git/inspect.js';
 import type { createRunArtifacts } from './artifacts.js';
 import type { EvidenceRecorder } from './evidence.js';
+import type { QaReference } from './qa-references.js';
 
 export interface DeliveryOptions {
   repository: Awaited<ReturnType<typeof inspectRepository>>;
@@ -56,4 +57,6 @@ export interface RoundResources {
   evidence: EvidenceRecorder;
   qaSession: QaSession;
   sandboxQaWorkspace: Workspace;
+  references: QaReference[];
+  followUpQaSession?: QaSession;
 }

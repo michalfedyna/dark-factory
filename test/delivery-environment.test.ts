@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import {
@@ -13,6 +13,7 @@ import { factoryConfigSchema } from '../src/config/schema.js';
 import { createSandboxQa } from '../src/agents/sandbox-qa.js';
 import { createFigma } from '../src/agents/figma.js';
 import { createReview } from '../src/agents/review.js';
+import { createQa } from '../src/agents/qa.js';
 import { qaSchema, type DeliveryRound } from '../src/contracts/delivery.js';
 import { createDeliveryAgents } from '../src/delivery/agent-sessions.js';
 import type { DeliveryOptions } from '../src/delivery/context.js';
@@ -28,6 +29,7 @@ import {
   candidateState,
   implementation,
   projectPlan,
+  png,
 } from './fixtures/delivery.js';
 import { qaPass, reviewPass } from './fixtures/workflow.js';
 import { figmaResult, figmaSource } from './fixtures/figma.js';
@@ -36,6 +38,7 @@ vi.mock('../src/integrations/git/repository.js');
 vi.mock('../src/agents/sandbox-qa.js');
 vi.mock('../src/agents/review.js');
 vi.mock('../src/agents/figma.js');
+vi.mock('../src/agents/qa.js');
 const projectCommand = vi.hoisted(() =>
   vi.fn<NonNullable<LocalSandbox['executeCommand']>>(),
 );
@@ -250,7 +253,7 @@ test('all project roles receive explicit toolchain paths without inheriting host
   const { environment, options, candidate } = await setup();
   await environment.prepare(brief, options.signal);
   environment.createFigmaWorkspace();
-  environment.beginRound(candidate());
+  await environment.beginRound(candidate());
   for (const settings of sandboxSettings) {
     expect(settings?.env).toMatchObject({
       JAVA_HOME: '/test/jdk',
@@ -284,7 +287,7 @@ test('private failure journals retain partial check evidence and redact configur
   options.apiKey = 'private-"key\\';
   options.figmaToken = 'private-figma-token';
   await environment.prepare(brief, options.signal);
-  const resources = environment.beginRound(candidate());
+  const resources = await environment.beginRound(candidate());
   const record = await resources.evidence.record(
     {
       kind: 'check',
@@ -418,7 +421,7 @@ test.skipIf(!nativeIsolation.available)(
     expect(run.reviewWorkspace.sandbox).toMatchObject({ isolation: backend });
     expect(run.projectSandbox.isolation).toBe(backend);
     expect(
-      environment.beginRound(candidate()).sandboxQaWorkspace.sandbox,
+      (await environment.beginRound(candidate())).sandboxQaWorkspace.sandbox,
     ).toMatchObject({ isolation: backend });
     expect(
       JSON.parse(await readFile(join(run.directory, 'input.json'), 'utf8')),
@@ -429,7 +432,7 @@ test.skipIf(!nativeIsolation.available)(
 test('review has its own full workspace and current evidence access', async () => {
   const { environment, options, candidate } = await setup();
   await environment.prepare(brief, options.signal);
-  const round = environment.beginRound(candidate());
+  const round = await environment.beginRound(candidate());
   const run = environment.requireRun();
   expect(run.reviewWorkspace).not.toBe(run.implementationWorkspace);
   expect(run.reviewWorkspace.filesystem).toBe(run.reviewFiles);
@@ -456,7 +459,7 @@ test('review has its own full workspace and current evidence access', async () =
   expect(
     await run.reviewFiles.readFile(evidence.path, { encoding: 'utf8' }),
   ).toContain('Current evidence.');
-  const next = environment.beginRound(candidate(2, 'repair'));
+  const next = await environment.beginRound(candidate(2, 'repair'));
   expect(run.reviewFiles.allowedPaths).toEqual([next.evidence.directory]);
   await expect(run.reviewFiles.readFile(evidence.path)).rejects.toThrow();
 });
@@ -531,13 +534,13 @@ test('requested native isolation fails closed when unavailable', async () => {
 test('each candidate owns its check commands and QA targets without changing an earlier round', async () => {
   const { environment, options, candidate } = await setup();
   await environment.prepare(brief, options.signal);
-  const first = environment.beginRound(candidate());
+  const first = await environment.beginRound(candidate());
   const repaired = candidate(2, 'repaired');
   repaired.implementation.verification = {
     checks: [{ id: 'updated-test', command: 'npm', args: ['test'] }],
     targets: [webTarget],
   };
-  const second = environment.beginRound(repaired);
+  const second = await environment.beginRound(repaired);
   expect(first.project.checks).toEqual(projectPlan.checks);
   expect(first.project.targets).toEqual([]);
   expect(second.project.checks[0]?.id).toBe('updated-test');
@@ -580,7 +583,7 @@ test('round resources cannot be reused for another revision or repair round', as
   expect(() => environment.requireRound(candidate())).toThrow(
     'Run checks first',
   );
-  const first = environment.beginRound(candidate());
+  const first = await environment.beginRound(candidate());
   expect(environment.requireRound(candidate())).toBe(first);
   expect(() => environment.requireRound(candidate(1, 'other'))).toThrow(
     'current candidate',
@@ -588,13 +591,83 @@ test('round resources cannot be reused for another revision or repair round', as
   expect(() => environment.requireRound(candidate(2))).toThrow(
     'current candidate',
   );
-  const second = environment.beginRound(candidate(2, 'repair'));
+  const second = await environment.beginRound(candidate(2, 'repair'));
   expect(second.evidence.records).toEqual([]);
   expect(second.evidence.directory).not.toBe(first.evidence.directory);
   expect(() => environment.requireRound(candidate())).toThrow(
     'current candidate',
   );
 });
+
+test.each(['pass', 'error', 'cancel'] as const)(
+  'UI follow-up owns a fresh session, immutable references and cleanup after %s',
+  async (outcome) => {
+    const { environment, options, candidate, controller } = await setup();
+    await environment.prepare(brief, options.signal);
+    const run = environment.requireRun();
+    await mkdir(join(run.repository.path, 'docs/design'), { recursive: true });
+    await writeFile(join(run.repository.path, 'docs/design/shipping.png'), png);
+    const resources = await environment.beginRound(candidate());
+    await resources.qaSession.close();
+    environment.createFollowUpQaSession(candidate());
+    expect(resources.followUpQaSession).not.toBe(resources.qaSession);
+    expect(() => environment.createFollowUpQaSession(candidate())).toThrow(
+      'fresh session',
+    );
+    const session = resources.followUpQaSession;
+    if (!session) throw new Error('Missing follow-up session.');
+    const close = vi.spyOn(session, 'close');
+    const sandbox = sandboxInstances.at(-1);
+    if (!sandbox) throw new Error('Missing follow-up sandbox.');
+    expect(sandbox).not.toBe(run.projectSandbox);
+    const stop = vi.spyOn(sandbox, 'stop');
+    const state = candidateState();
+    const round = state.history[0]!;
+    round.qa = qaSchema.parse({
+      ...qaPass,
+      verdict: 'blocked',
+      criteria: [{ ...qaPass.criteria[0], status: 'blocked' }],
+    });
+    round.sandboxQa = {
+      ...round.qa,
+      uiFollowUp: {
+        criterionIds: ['AC1'],
+        notes: 'Compare with design-1 on the native target.',
+      },
+    };
+    vi.mocked(createQa).mockReturnValueOnce(async (input) => {
+      expect(input.context.references).toEqual([
+        { id: 'design-1', name: 'shipping.png' },
+      ]);
+      expect(input.context.followUp?.notes).toContain('design-1');
+      expect(input.tools.qa_reference).toBeDefined();
+      expect(input).not.toHaveProperty('workspace');
+      await expect(
+        input.tools.qa_reference!.execute!({ referenceId: 'design-1' }, {}),
+      ).resolves.toMatchObject({ image: png.toString('base64') });
+      if (outcome === 'cancel') controller.abort(new Error('Cancelled'));
+      if (outcome !== 'pass')
+        throw new Error(outcome === 'cancel' ? 'Cancelled' : 'Provider failed');
+      return qaSchema.parse(qaPass);
+    });
+    const agents = createDeliveryAgents(options, environment.artifacts.cleanup);
+    const pending = agents.qa(
+      run,
+      resources,
+      state,
+      options.signal,
+      'follow-up',
+    );
+    if (outcome === 'pass')
+      await expect(pending).resolves.toMatchObject({ verdict: 'pass' });
+    else
+      await expect(pending).rejects.toThrow(
+        outcome === 'cancel' ? 'Cancelled' : 'Provider failed',
+      );
+    expect(close).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+  },
+);
 
 test('QA failure closes automation with a fresh signal and stops servers exactly once', async () => {
   const { environment, options, controller, candidate } = await setup({
@@ -603,7 +676,7 @@ test('QA failure closes automation with a fresh signal and stops servers exactly
   });
   await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
-  const session = environment.beginRound(candidate()).qaSession;
+  const session = (await environment.beginRound(candidate())).qaSession;
   const server = new QaServer();
   const spawn = vi
     .spyOn(run.projectSandbox.processes, 'spawn')
@@ -642,7 +715,7 @@ test('a server returned after session closure is killed and cannot continue QA',
   });
   await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
-  const session = environment.beginRound(candidate()).qaSession;
+  const session = (await environment.beginRound(candidate())).qaSession;
   const spawning = deferred<ProcessHandle>();
   vi.spyOn(run.projectSandbox.processes, 'spawn').mockReturnValue(
     spawning.promise,
@@ -668,7 +741,7 @@ test('QA cleanup failure still attempts every acquired environment resource', as
   });
   await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
-  const session = environment.beginRound(candidate()).qaSession;
+  const session = (await environment.beginRound(candidate())).qaSession;
   vi.spyOn(run.projectSandbox.processes, 'spawn').mockRejectedValue(
     new Error('Server failed'),
   );
@@ -697,7 +770,7 @@ async function setupQaServer() {
   const { environment, options, candidate } = setupResult;
   await environment.prepare(brief, options.signal);
   const run = environment.requireRun();
-  const resources = environment.beginRound(candidate());
+  const resources = await environment.beginRound(candidate());
   const server = new QaServer();
   const spawn = vi
     .spyOn(run.projectSandbox.processes, 'spawn')
@@ -811,7 +884,7 @@ test.each(['pass', 'error', 'cancel'] as const)(
   async (outcome) => {
     const { environment, options, candidate, controller } = await setup();
     await environment.prepare(brief, options.signal);
-    const resources = environment.beginRound(candidate());
+    const resources = await environment.beginRound(candidate());
     const run = environment.requireRun();
     const state = candidateState();
     state.history[0]!.qa = qaSchema.parse({

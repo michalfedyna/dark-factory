@@ -9,7 +9,12 @@ import {
 import type { DeliveryOperations } from './operations.js';
 import { figmaResultSchema } from '../contracts/figma.js';
 import { applyReview, canReview, canRunQa } from './policy.js';
-import { combineQaReports, needsSandboxQa } from './qa-handoff.js';
+import {
+  combineQaReports,
+  identifyQaFindings,
+  needsSandboxQa,
+  uiFollowUpCriteria,
+} from './qa-handoff.js';
 import { currentRound, replaceRound } from './state.js';
 
 type ExecuteDeliveryStep = (
@@ -108,7 +113,10 @@ export const verifyCandidate: DeliveryStep = {
   skip: qaSkip,
   execute: async (state, operations, signal) => {
     const round = currentRound(state);
-    const qa = qaSchema.parse(await operations.qa(state, signal));
+    const qa = identifyQaFindings(
+      qaSchema.parse(await operations.qa(state, signal)),
+      'ui',
+    );
     const reported = replaceRound(state, { ...round, qa, browserQa: qa });
     const validated = await operations.validateQa(
       reported,
@@ -133,12 +141,46 @@ export const verifySandboxCandidate: DeliveryStep = {
   execute: async (state, operations, signal) => {
     const round = currentRound(state);
     if (!round.qa) throw new Error('Sandbox QA requires browser/mobile QA.');
-    const sandboxQa = qaSchema.parse(await operations.sandboxQa(state, signal));
+    const sandboxQa = identifyQaFindings(
+      qaSchema.parse(await operations.sandboxQa(state, signal)),
+      'sandbox',
+    );
     signal.throwIfAborted();
-    return replaceRound(state, {
+    const reported = replaceRound(state, {
       ...round,
       sandboxQa,
       qa: combineQaReports(round.qa, sandboxQa),
+    });
+    const validated = await operations.validateQa(
+      reported,
+      signal,
+      'preliminary',
+    );
+    await operations.assertUnchanged(round.revision, signal);
+    return replaceRound(reported, validated);
+  },
+};
+
+export const verifyUiFollowUp: DeliveryStep = {
+  skip: (state) =>
+    qaSkip(state) ??
+    (uiFollowUpCriteria(currentRound(state)).length
+      ? null
+      : 'No targeted UI follow-up requested.'),
+  execute: async (state, operations, signal) => {
+    const round = currentRound(state);
+    if (!round.qa)
+      throw new Error('UI follow-up requires a combined QA report.');
+    const ids = uiFollowUpCriteria(round);
+    const followUpQa = identifyQaFindings(
+      qaSchema.parse(await operations.followUpQa(state, signal)),
+      'follow-up',
+    );
+    signal.throwIfAborted();
+    return replaceRound(state, {
+      ...round,
+      followUpQa,
+      qa: combineQaReports(round.qa, followUpQa, ids),
     });
   },
 };
