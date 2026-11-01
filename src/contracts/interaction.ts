@@ -8,6 +8,7 @@ export const questionSchema = z.strictObject({
     .describe(
       'Only context needed to make a decision, such as a brief for confirmation. Do not repeat the question or explain how to answer. Empty if not needed.',
     ),
+  contextTitle: z.string().trim().min(1).max(100).optional(),
   options: z
     .array(z.string().trim().min(1).max(500))
     .max(8)

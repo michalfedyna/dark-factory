@@ -52,6 +52,7 @@ export async function approveProject(
     'Implement',
     'Stop',
     signal,
+    'Implementation plan',
   );
   if (!accepted) throw new Error('Implementation was not approved.');
   return { project, base, isolation };

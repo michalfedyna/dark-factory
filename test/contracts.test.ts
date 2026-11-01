@@ -69,4 +69,21 @@ describe('interaction contracts', () => {
       questionSchema.safeParse({ ...question, html: '<input>' }).success,
     ).toBe(false);
   });
+  test('accepts an optional plain-text context heading', () => {
+    const question = {
+      question: 'Implement?',
+      context: 'Allowed paths: src',
+      options: ['Implement', 'Stop'],
+    };
+    expect(
+      questionSchema.parse({
+        ...question,
+        contextTitle: ' Implementation plan ',
+      }).contextTitle,
+    ).toBe('Implementation plan');
+    for (const contextTitle of ['', ' ', 'x'.repeat(101)])
+      expect(
+        questionSchema.safeParse({ ...question, contextTitle }).success,
+      ).toBe(false);
+  });
 });

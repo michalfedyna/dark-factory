@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { factoryConfigSchema } from '../src/config/schema.js';
+import type { Ask } from '../src/contracts/interaction.js';
 import { createDeliveryRuntime } from '../src/delivery/runtime.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import {
@@ -143,6 +144,7 @@ test.each(['Stop', 'yes', ''])(
   'only exact implementation approval permits preparation (answer: %j)',
   async (answer) => {
     const { source, base } = await setup();
+    const ask = vi.fn<Ask>().mockResolvedValue(answer);
     const runtime = createDeliveryRuntime({
       inspect: () =>
         Promise.resolve({
@@ -153,13 +155,32 @@ test.each(['Stop', 'yes', ''])(
       model: factoryConfigSchema.parse({}).model,
       apiKey: 'not-for-project-commands',
       runId: 'denied',
-      ask: () => Promise.resolve(answer),
+      ask,
       signal,
       progress: () => {},
     });
     try {
       await expect(runtime.operations.prepare(brief, signal)).rejects.toThrow(
         'not approved',
+      );
+      expect(ask).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          contextTitle: 'Implementation plan',
+          options: ['Implement', 'Stop'],
+        }),
+        expect.any(AbortSignal),
+      );
+      const context: unknown = JSON.parse(ask.mock.calls[0]![0].context);
+      expect(context).toMatchObject({
+        brief,
+        repository: source,
+        baseRevision: base,
+        project: { ...projectPlan, repository: source, baseRevision: base },
+        maxRepairRounds: 3,
+      });
+      expect(context).toHaveProperty(
+        'warning',
+        expect.stringContaining('Publication requires a separate approval.'),
       );
       await expect(
         readFile(join(source, '.darkfactory/runs/denied/input.json')),

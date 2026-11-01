@@ -7,6 +7,7 @@ import {
   questionSchema,
   type Ask,
 } from '../contracts/interaction.js';
+import { writeAccentBlock } from './accent-block.js';
 
 export class CancelledError extends Error {
   constructor() {
@@ -16,7 +17,7 @@ export class CancelledError extends Error {
 
 export function createTerminal(options: {
   input?: Readable & { isTTY?: boolean };
-  output?: Writable;
+  output?: Writable & { isTTY?: boolean; columns?: number };
   cancel: () => never;
 }) {
   const input = options.input ?? process.stdin;
@@ -89,7 +90,16 @@ export function createTerminal(options: {
   const ask: Ask = async (inputQuestion, signal) => {
     signal.throwIfAborted();
     const question = questionSchema.parse(inputQuestion);
-    if (question.context) output.write(`${clean(question.context)}\n\n`);
+    if (question.context) {
+      const context = clean(question.context);
+      const title = question.contextTitle && clean(question.contextTitle);
+      if (title && output.isTTY) {
+        writeAccentBlock(title, context, output);
+      } else {
+        if (title) output.write(`${title}\n`);
+        output.write(`${context}\n\n`);
+      }
+    }
     if (interactive && question.options.length > 0) {
       const selected = await prompts.select({
         message: clean(question.question),

@@ -119,6 +119,7 @@ test.each(['chat', 'responses'])(
       expect(run.stdout()).toBe('');
       expect(run.stderr()).toContain('Which export format?');
       expect(run.stderr()).toContain('Inspecting repository');
+      expect(run.stderr()).toContain('Implementation plan\n{\n');
       expect(run.stderr()).toContain('Implement this brief?');
       await expect(readdir(join(run.source, '.darkfactory'))).rejects.toThrow();
       expect(run.stdout()).not.toContain('test-key');

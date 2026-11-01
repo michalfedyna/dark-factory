@@ -1,24 +1,10 @@
-import { PassThrough } from 'node:stream';
-import { WriteStream } from 'node:tty';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { S_BAR } from '@clack/prompts';
 import { writeObserver } from '../src/cli/observer.js';
+import { captureTerminalOutput as terminal } from './fixtures/terminal.js';
 
 afterEach(() => vi.unstubAllEnvs());
-
-function terminal(isTTY = true, columns?: number) {
-  const output = Object.assign(new PassThrough(), {
-    isTTY,
-    getColorDepth: () => WriteStream.prototype.getColorDepth(),
-    ...(columns === undefined ? {} : { columns }),
-  });
-  let log = '';
-  output.on('data', (chunk: Buffer) => {
-    log += chunk.toString();
-  });
-  return { output, log: () => log };
-}
 
 describe('Observer terminal output', () => {
   test('renders a cyan accent block with a bold heading and outside spacing', () => {

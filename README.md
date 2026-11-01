@@ -77,9 +77,12 @@ npm run dev -- start --issue "Export filtered issues as CSV"
 One invocation runs one issue from exploration to delivery. The factory validates
 the brief in memory, inspects the current repository, and infers setup commands,
 checks, change scope, and QA targets from its files. Necessary unknowns become
-terminal questions, not guessed defaults. After implementation approval it
-implements, checks, tests, reviews, and prepares a draft PR. Publication needs a
-separate approval; **Keep local** retains a verified candidate without pushing.
+terminal questions, not guessed defaults. The implementation approval shows the
+plan in the same cyan accent block as Observer updates, preserving its multiline
+details. `NO_COLOR` keeps the layout without color; redirected stderr stays plain.
+After implementation approval it implements, checks, tests, reviews, and prepares
+a draft PR. Publication needs a separate approval; **Keep local** retains a
+verified candidate without pushing.
 Stdout contains only the final delivery result JSON, not the intermediate brief.
 Prompts, progress, diagnostics, and artifact paths go to stderr. The managed proxy
 stops when the run ends, including cancellation, crashes, and forced factory termination.

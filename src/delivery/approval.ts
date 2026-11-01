@@ -7,9 +7,15 @@ export async function approve(
   accept: string,
   decline: string,
   signal: AbortSignal,
+  contextTitle?: string,
 ): Promise<boolean> {
   const answer = await ask(
-    { question, context, options: [accept, decline] },
+    {
+      question,
+      context,
+      ...(contextTitle === undefined ? {} : { contextTitle }),
+      options: [accept, decline],
+    },
     signal,
   );
   signal.throwIfAborted();

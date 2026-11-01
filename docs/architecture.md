@@ -127,8 +127,12 @@ without mixing them into stdout JSON or a pending prompt. Observations are not
 fed back into agents, gates, or approvals. This is not durable observational
 memory and does not add storage or a custom workflow engine.
 
-`cli/observer.ts` owns summary sanitization and rendering: terminal-width accent
-blocks in a TTY (respecting `NO_COLOR`), plain `Observer: ...` lines otherwise.
+`cli/observer.ts` owns summary sanitization and plain `Observer: ...` output.
+It shares `cli/accent-block.ts` with titled question context in `cli/terminal.ts`:
+terminal-width accent blocks in a TTY, respecting `NO_COLOR`. The implementation
+approval supplies an explicit `contextTitle` of `Implementation plan`; its full
+multiline context is preserved. Untitled questions and redirected context remain
+plain text.
 
 ## Cancellation and failures
 
