@@ -16,7 +16,8 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Prefer functionality provided by Mastra over custom implementations. Check the current Mastra documentation before building infrastructure that the framework may already provide.
 - Use registered [Mastra workflows](https://mastra.ai/docs/workflows/overview) for task orchestration, steps, run state, and execution control. Do not build a custom Sessions class or workflow engine.
 - Define separate workflows for different tasks when their steps or control flow differ. Reuse steps or nested workflows where useful; do not force every task through one workflow.
-- Use Mastra [workspaces and sandboxes](https://mastra.ai/docs/sandbox/overview) for implementation and QA agents that need repository access, commands, dependency installation, builds, tests, or background processes. Prefer framework-provided filesystem and sandbox tools over custom equivalents.
+- Use Mastra [workspaces and sandboxes](https://mastra.ai/docs/sandbox/overview) for implementation and review agents that need repository access, commands, dependency installation, builds, tests, or background processes. Prefer framework-provided filesystem and sandbox tools over custom equivalents.
+- QA agents only test running application behavior against acceptance criteria. Give them constrained application-testing tools, not repository, filesystem, or shell access. They must not inspect or review files; code inspection belongs to the review agent.
 - Scope sandbox environments to the task or workflow run, and explicitly manage their lifecycle and cleanup. Do not share mutable environments across unrelated runs.
 - An ordinary LocalSandbox runs on the host; it is not a security boundary. Use native isolation or a remote/container sandbox for untrusted code, and restrict network access and credentials to what the task needs.
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { LocalSandbox } from '@mastra/core/workspace';
 import { z } from 'zod';
@@ -47,6 +47,15 @@ export const qaCommandSchema = z.strictObject({
   targetId: z.string(),
   operation: z.enum(operations),
   args: z.array(z.string().max(8_000)).max(30),
+});
+
+export const qaResultSchema = z.strictObject({
+  evidenceId: z.string(),
+  path: z.string(),
+  exitCode: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+  image: z.string().optional(),
 });
 
 export interface QaToolOptions {
@@ -98,7 +107,7 @@ export async function executeQaCommand(
   input: {
     kind: 'browser' | 'device';
     targetId: string;
-    operation: Operation;
+    operation: Operation | 'viewport';
     command: string;
     args: string[];
     screenshot: string | undefined;
@@ -123,9 +132,11 @@ export async function executeQaCommand(
       stderr: 'Could not execute the configured QA tool.',
     };
   }
+  let image: string | undefined;
   if (input.screenshot && result.exitCode === 0) {
     try {
       await validateScreenshot(input.screenshot);
+      image = (await readFile(input.screenshot)).toString('base64');
     } catch {
       result = {
         ...result,
@@ -152,5 +163,23 @@ export async function executeQaCommand(
     exitCode: result.exitCode,
     stdout: result.stdout.slice(-24_000),
     stderr: result.stderr.slice(-8_000),
+    ...(image ? { image } : {}),
+  };
+}
+
+/** Present live UI captures without giving the agent a file-reading tool. */
+export function qaModelOutput(output: z.infer<typeof qaResultSchema>) {
+  const { evidenceId, exitCode, stdout, stderr, image } = output;
+  return {
+    type: 'content',
+    value: [
+      {
+        type: 'text',
+        text: JSON.stringify({ evidenceId, exitCode, stdout, stderr }),
+      },
+      ...(image
+        ? [{ type: 'media', data: image, mediaType: 'image/png' }]
+        : []),
+    ],
   };
 }

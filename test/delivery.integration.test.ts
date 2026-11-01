@@ -10,7 +10,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import { deliveryResultSchema } from '../src/contracts/delivery.js';
+import {
+  deliveryResultSchema,
+  deliveryStateSchema,
+} from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
 import { uiProjectPlan } from './fixtures/delivery.js';
 import {
@@ -24,6 +27,8 @@ import {
 test.each([
   ['chat', 'delivery', 1, undefined],
   ['responses', 'delivery', 1, undefined],
+  ['chat', 'delivery-responsive', 1, undefined],
+  ['responses', 'delivery-responsive', 1, undefined],
   ['responses', 'delivery-qa-repair', 2, undefined],
   ['responses', 'delivery-check-repair', 2, undefined],
   ['chat', 'delivery-review-repair', 2, undefined],
@@ -134,6 +139,14 @@ test.each([
       expect(
         contexts.find((context) => context.role === 'exploration')?.tools,
       ).toContain('ask');
+      for (const request of contexts.filter(({ role }) => role === 'qa')) {
+        expect(request.tools.sort()).toEqual(['agent_browser', 'agent_device']);
+        for (const record of request.payload?.evidence as object[])
+          expect(record).not.toHaveProperty('path');
+      }
+      expect(contexts.find(({ role }) => role === 'review')?.tools).toContain(
+        'mastra_workspace_read_file',
+      );
       const implementations = contexts.filter(
         (context) => context.role === 'implementation',
       );
@@ -196,7 +209,7 @@ test.each([
       );
       expect(
         evidenceFiles.filter((name) => name.endsWith('.png')),
-      ).toHaveLength(2);
+      ).toHaveLength(mode === 'delivery-responsive' ? 3 : 2);
       const persisted = await readFile(
         join(result.runDirectory, 'state.json'),
         'utf8',
@@ -205,6 +218,30 @@ test.each([
       expect(
         (JSON.parse(persisted) as { history: unknown[] }).history,
       ).toHaveLength(rounds);
+      if (mode === 'delivery-responsive') {
+        const state = deliveryStateSchema.parse(JSON.parse(persisted));
+        const viewports = state.history[0]!.evidence.filter(
+          (record) => record.operation === 'viewport',
+        );
+        expect(viewports).toHaveLength(2);
+        const commands = await Promise.all(
+          viewports.map(async (record) => {
+            expect(record).toMatchObject({
+              kind: 'browser',
+              targetId: 'web',
+              revision: result.revision,
+              exitCode: 0,
+            });
+            return JSON.parse(await readFile(record.path, 'utf8')) as {
+              output: { args: string[] };
+            };
+          }),
+        );
+        expect(commands.map(({ output }) => output.args.slice(-4))).toEqual([
+          ['set', 'viewport', '1280', '800'],
+          ['set', 'viewport', '390', '844'],
+        ]);
+      }
       const publication: unknown = JSON.parse(
         await readFile(join(result.runDirectory, 'publication.json'), 'utf8'),
       );

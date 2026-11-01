@@ -16,8 +16,8 @@ export function createProgressObserver(options: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stage = '';
   let previousSummary = '';
-  let events: Activity[] = [];
-  let dirty = false;
+  let events: { sequence: number; activity: Activity }[] = [];
+  let sequence = 0;
   let busy = false;
   let paused = false;
   let disabled = false;
@@ -29,7 +29,8 @@ export function createProgressObserver(options: {
     timer = undefined;
   };
   const schedule = () => {
-    if (timer || busy || paused || disabled || signal.aborted || !dirty) return;
+    if (timer || busy || paused || disabled || signal.aborted || !events.length)
+      return;
     timer = setTimeout(
       () => {
         timer = undefined;
@@ -41,20 +42,26 @@ export function createProgressObserver(options: {
   };
   const summarize = async () => {
     busy = true;
-    dirty = false;
     nextRunAt = Date.now() + options.intervalMs;
     const currentGeneration = generation;
+    const currentSequence = sequence;
     const callSignal = AbortSignal.any([
       signal,
       AbortSignal.timeout(options.timeoutMs),
     ]);
     try {
       const summary = await options.summarize(
-        { stage, previousSummary, events: [...events] },
+        {
+          stage,
+          previousSummary,
+          events: events.map(({ activity }) => activity),
+        },
         callSignal,
       );
       if (callSignal.aborted || paused || currentGeneration !== generation)
         return;
+      // Consume this batch, including silent updates, but retain newer activity.
+      events = events.filter((event) => event.sequence > currentSequence);
       const message = summary.replace(/\s+/g, ' ').trim().slice(0, 500);
       if (message && message !== previousSummary) {
         previousSummary = message;
@@ -78,9 +85,8 @@ export function createProgressObserver(options: {
       stage = activity.message;
       generation++;
     }
-    // Keep a bounded metadata window rather than a growing conversation history.
-    events = [...events.slice(-39), activity];
-    dirty = true;
+    // Keep only bounded, unprocessed metadata rather than report history.
+    events = [...events.slice(-39), { sequence: ++sequence, activity }];
     schedule();
   };
   const close = () => {
@@ -100,7 +106,6 @@ export function createProgressObserver(options: {
     },
     resume: () => {
       paused = false;
-      dirty = true;
       schedule();
     },
     close,

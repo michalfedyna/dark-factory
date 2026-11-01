@@ -71,7 +71,6 @@ export function createDeliveryAgents(options: DeliveryOptions) {
         });
         const report = await qa({
           context: qaContext(state, round.project, round.evidence.records),
-          workspace: run.verificationWorkspace,
           tools,
           signal,
           ...observation,

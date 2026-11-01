@@ -116,6 +116,28 @@ test.each(['chat', 'responses'])(
   20_000,
 );
 
+test.each(['chat', 'responses'])(
+  'empty observer summaries stay silent without disabling delivery (%s)',
+  async (api) => {
+    const run = await factory(api, 'Export issues', 'observer-silent');
+    try {
+      run.child.stdin.end('CSV\nStart\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
+      expect(
+        await readFile(join(run.directory, 'agent-contexts.jsonl'), 'utf8'),
+      ).toContain('"role":"observer"');
+      expect(run.stderr()).not.toContain('Observer:');
+      expect(deliveryResultSchema.parse(JSON.parse(run.stdout())).status).toBe(
+        'ready',
+      );
+      await run.assertStopped();
+    } finally {
+      await run.clean();
+    }
+  },
+  20_000,
+);
+
 test.each([true, false])(
   'observer failure/disable never stops delivery or leaks credentials (enabled=%s)',
   async (enabled) => {

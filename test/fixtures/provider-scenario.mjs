@@ -18,7 +18,10 @@ export function scenarioReply(request, resultPath, mode) {
   if (role === 'observer') {
     return {
       result: {
-        summary: `Current delivery stage: ${payload.stage}.`,
+        summary:
+          mode === 'observer-silent'
+            ? ''
+            : `Current delivery stage: ${payload.stage}.`,
       },
     };
   }
@@ -106,6 +109,18 @@ export function scenarioReply(request, resultPath, mode) {
         name: 'agent_browser',
         args: { targetId: 'web', operation: 'open', args: [] },
       },
+      ...(mode === 'delivery-responsive'
+        ? [
+            {
+              name: 'agent_browser',
+              args: {
+                targetId: 'web',
+                operation: 'viewport',
+                args: ['1280', '800'],
+              },
+            },
+          ]
+        : []),
       {
         name: 'agent_browser',
         args: { targetId: 'web', operation: 'snapshot', args: [] },
@@ -114,6 +129,26 @@ export function scenarioReply(request, resultPath, mode) {
         name: 'agent_browser',
         args: { targetId: 'web', operation: 'screenshot', args: [] },
       },
+      ...(mode === 'delivery-responsive'
+        ? [
+            {
+              name: 'agent_browser',
+              args: {
+                targetId: 'web',
+                operation: 'viewport',
+                args: ['390', '844'],
+              },
+            },
+            {
+              name: 'agent_browser',
+              args: { targetId: 'web', operation: 'snapshot', args: [] },
+            },
+            {
+              name: 'agent_browser',
+              args: { targetId: 'web', operation: 'screenshot', args: [] },
+            },
+          ]
+        : []),
       {
         name: 'agent_device',
         args: { targetId: 'ios', operation: 'open', args: [] },

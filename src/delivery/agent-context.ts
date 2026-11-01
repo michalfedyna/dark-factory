@@ -87,9 +87,15 @@ export function qaContext(
             ...(target.device ? { device: target.device } : {}),
           },
     ),
-    evidence: evidenceReferences(
-      evidence.filter((record) => record.revision === round.revision),
-    ),
+    evidence: evidence
+      .filter((record) => record.revision === round.revision)
+      .map(({ id, kind, targetId, operation, exitCode }) => ({
+        id,
+        kind,
+        targetId,
+        operation,
+        exitCode,
+      })),
   };
 }
 

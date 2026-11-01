@@ -136,9 +136,57 @@ describe('default workflow delivery stages', () => {
     await expect(run()).resolves.toMatchObject({
       status: 'blocked',
       rounds: 1,
+      reason: finding('review').description,
     });
     expect(operations.implement).toHaveBeenCalledOnce();
   });
+  test.each(['qa', 'review'] as const)(
+    'blocked %s exposes actual blocking findings in the final result',
+    async (role) => {
+      const { run, operations } = setup();
+      const blockers: Finding[] = [
+        {
+          ...finding(role),
+          kind: 'question',
+          description:
+            'Mobile layout cannot be checked: viewport resizing is unavailable.',
+        },
+        {
+          ...finding(role),
+          kind: 'question',
+          description: 'Provide a usable mobile viewport.',
+        },
+      ];
+      const findings = [
+        ...blockers,
+        {
+          ...finding(role),
+          severity: 'advisory',
+          description: 'Not a blocker.',
+        },
+      ];
+      if (role === 'qa')
+        operations.qa.mockResolvedValue({
+          ...qaPass,
+          verdict: 'blocked',
+          criteria: [{ ...qaPass.criteria[0], status: 'blocked' }],
+          findings,
+        });
+      else
+        operations.review.mockResolvedValue({
+          ...reviewPass,
+          verdict: 'blocked',
+          findings,
+        });
+      await expect(run()).resolves.toMatchObject({
+        status: 'blocked',
+        rounds: 1,
+        reason: blockers.map((blocker) => blocker.description).join('\n'),
+      });
+      expect(operations.implement).toHaveBeenCalledOnce();
+      expect(operations.summarize).not.toHaveBeenCalled();
+    },
+  );
   test('repeated source trees stop a stalled repair', async () => {
     const { run, operations } = setup();
     operations.capture.mockResolvedValue({

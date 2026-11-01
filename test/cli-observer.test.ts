@@ -7,7 +7,7 @@ import { captureTerminalOutput as terminal } from './fixtures/terminal.js';
 afterEach(() => vi.unstubAllEnvs());
 
 describe('Observer terminal output', () => {
-  test('renders a cyan accent block with a bold heading and no outside spacing', () => {
+  test('renders a cyan accent block with a bold heading and surrounding blank lines', () => {
     vi.stubEnv('NO_COLOR', undefined);
     vi.stubEnv('NODE_DISABLE_COLORS', undefined);
     vi.stubEnv('FORCE_COLOR', '1');
@@ -16,7 +16,7 @@ describe('Observer terminal output', () => {
     writeObserver('Tests are running.', output);
 
     expect(stripVTControlCharacters(log())).toBe(
-      `${S_BAR}  Observer\n${S_BAR}  Tests are running.\n`,
+      `\n${S_BAR}  Observer\n${S_BAR}  Tests are running.\n\n`,
     );
     expect(log()).toContain(`\u001b[36m${S_BAR}\u001b[39m`);
     expect(log()).toContain('\u001b[1m\u001b[36mObserver\u001b[39m\u001b[22m');
@@ -30,7 +30,9 @@ describe('Observer terminal output', () => {
 
     writeObserver('Tests are running.', output);
 
-    expect(log()).toBe(`${S_BAR}  Observer\n${S_BAR}  Tests are running.\n`);
+    expect(log()).toBe(
+      `\n${S_BAR}  Observer\n${S_BAR}  Tests are running.\n\n`,
+    );
   });
 
   test('keeps redirected output plain even when colors are forced', () => {
@@ -51,10 +53,12 @@ describe('Observer terminal output', () => {
 
     expect(stripVTControlCharacters(log())).toBe(
       [
+        '',
         `${S_BAR}  Observer`,
         `${S_BAR}  Implementation is`,
         `${S_BAR}  complete. Tests are`,
         `${S_BAR}  running.`,
+        '',
         '',
       ].join('\n'),
     );
@@ -66,7 +70,7 @@ describe('Observer terminal output', () => {
     writeObserver('abcdefghijklmnopqrstuvwxyz', output);
 
     expect(stripVTControlCharacters(log())).toBe(
-      `${S_BAR}  Observer\n${S_BAR}  abcdefghijkl\n${S_BAR}  mnopqrstuvwx\n${S_BAR}  yz\n`,
+      `\n${S_BAR}  Observer\n${S_BAR}  abcdefghijkl\n${S_BAR}  mnopqrstuvwx\n${S_BAR}  yz\n\n`,
     );
   });
 
@@ -76,7 +80,7 @@ describe('Observer terminal output', () => {
     writeObserver('界'.repeat(9), output);
 
     expect(stripVTControlCharacters(log())).toBe(
-      `${S_BAR}  Observer\n${S_BAR}  界界界界\n${S_BAR}  界界界界\n${S_BAR}  界\n`,
+      `\n${S_BAR}  Observer\n${S_BAR}  界界界界\n${S_BAR}  界界界界\n${S_BAR}  界\n\n`,
     );
   });
 
@@ -86,7 +90,7 @@ describe('Observer terminal output', () => {
     writeObserver('a'.repeat(77), output);
 
     expect(stripVTControlCharacters(log())).toBe(
-      `${S_BAR}  Observer\n${S_BAR}  ${'a'.repeat(76)}\n${S_BAR}  a\n`,
+      `\n${S_BAR}  Observer\n${S_BAR}  ${'a'.repeat(76)}\n${S_BAR}  a\n\n`,
     );
   });
 
@@ -97,12 +101,12 @@ describe('Observer terminal output', () => {
     writeObserver('Tests are running.', output);
 
     expect(stripVTControlCharacters(log())).toBe(
-      `${S_BAR}  Observer\n${S_BAR}  Tests are running.\n` +
-        `${S_BAR}  Observer\n${S_BAR}  Tests are\n${S_BAR}  running.\n`,
+      `\n${S_BAR}  Observer\n${S_BAR}  Tests are running.\n\n` +
+        `\n${S_BAR}  Observer\n${S_BAR}  Tests are\n${S_BAR}  running.\n\n`,
     );
   });
 
-  test('adds no blank lines between Observer blocks and adjacent output', () => {
+  test('separates Observer blocks from each other and adjacent output', () => {
     const { output, log } = terminal();
     output.write('Inspecting repository\n');
     writeObserver('Reading manifests.', output);
@@ -112,10 +116,14 @@ describe('Observer terminal output', () => {
     expect(stripVTControlCharacters(log())).toBe(
       [
         'Inspecting repository',
+        '',
         `${S_BAR}  Observer`,
         `${S_BAR}  Reading manifests.`,
+        '',
+        '',
         `${S_BAR}  Observer`,
         `${S_BAR}  Reading source.`,
+        '',
         'Preparing delivery',
         '',
       ].join('\n'),

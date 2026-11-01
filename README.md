@@ -209,13 +209,16 @@ Agents receive role-specific inputs, not the full workflow state or round histor
 Implementation gets the approved task, allowed paths, check commands, and only the
 latest repair findings, failed criterion notes, and failed check-log tails.
 QA gets acceptance criteria, constraints, target addresses, and current evidence
-references—not implementation claims, setup commands, or automatic log dumps.
+metadata without file paths—not implementation claims, setup commands, or logs.
+It tests only running application behavior against those criteria, using constrained
+browser/device tools with UI captures returned directly. QA has no workspace,
+filesystem, or shell tools and does not inspect or review files.
 Review gets the task, patch, allowed paths, current acceptance/evidence references,
 and the last relevant reviewer feedback. The PR summary gets only final outcomes.
 
-The workflow still retains complete history for gates and artifacts. Agents can
-read needed source and evidence through their existing tools; context selection
-does not restrict those tool permissions. See [agent context](docs/architecture.md#agent-context).
+The workflow still retains complete history for gates and artifacts. Implementation
+and review can read needed source and evidence through their role-specific tools;
+QA cannot. See [agent context](docs/architecture.md#agent-context).
 
 ### Background observer
 
@@ -225,13 +228,16 @@ updates on stderr. It starts only after exploration returns a validated, confirm
 ready brief, then runs alongside delivery, not as a blocking step.
 In a terminal, updates appear as compact accent blocks with a bold cyan heading
 and a cyan left border, wrapped to the terminal width. `NO_COLOR` disables color;
-redirected stderr keeps plain `Observer: ...` lines. Updates add no surrounding blank lines.
+redirected stderr keeps plain `Observer: ...` lines. Terminal blocks have blank
+lines before and after them.
 Exploration activity is not collected or summarized; stale results from a previous
 delivery stage are discarded. Final stdout JSON is unchanged.
 
-The observer receives only the latest 40 metadata events, the current stage, and
-its previous summary—not source files, tool arguments/results, user answers,
-reasoning, or credentials. Tool completion is not proof of passing verification.
+The observer receives up to 40 new metadata events since its last processed update,
+the current stage, and its previous report—not source files, tool arguments/results,
+user answers, reasoning, or credentials. Reports describe only new developments,
+without recapping earlier progress, and stay silent when there is nothing new to
+report. Tool completion is not proof of passing verification.
 Summaries are informational and never approve work or control delivery gates.
 
 It uses `model.id` by default. To use a faster/cheaper model, set
@@ -276,8 +282,8 @@ directly to preparation. The CLI starts and cancels one native workflow run.
 
 Delivery uses a nested Mastra repair loop, not a second top-level run.
 `sessionTimeoutMs` bounds the whole run, including exploration confirmation. Implementation uses a
-per-run workspace and sandbox; QA/review get read-only source access, and trusted
-runners capture revision-bound evidence. See
+per-run workspace and sandbox; review gets read-only source access, QA gets only
+application-testing tools, and trusted runners capture revision-bound evidence. See
 [architecture](docs/architecture.md) and [delivery](docs/delivery.md).
 
 ## Structure

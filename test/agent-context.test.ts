@@ -133,7 +133,7 @@ test('repairs receive latest findings and failed criterion notes, never historic
     expect(prompt).not.toContain(excluded);
 });
 
-test('QA receives criteria, constraints, target addresses and current evidence references only', () => {
+test('QA receives criteria, constraints, target addresses and current evidence metadata without file paths', () => {
   const state = candidateState();
   state.brief.constraints = ['Use local test accounts.'];
   const evidence = currentRound(state).evidence;
@@ -167,7 +167,6 @@ test('QA receives criteria, constraints, target addresses and current evidence r
         targetId: null,
         operation: 'test',
         exitCode: 0,
-        path: 'test.json',
       },
     ],
   });

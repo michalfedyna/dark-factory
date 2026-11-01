@@ -62,6 +62,87 @@ describe('background progress observer', () => {
     expect(observer.summarize.mock.calls[1]![0].previousSummary).toBe(
       'Inspecting the repository.',
     );
+    expect(observer.summarize.mock.calls[1]![0].events).toEqual([
+      { kind: 'check', id: 'lint', status: 'passed' },
+    ]);
+    expect(observer.emit).toHaveBeenCalledOnce();
+  });
+
+  test.each(['', ' \n\t ', 'Inspecting the repository.'])(
+    'consumes silent or duplicate updates without replacing the last report (%j)',
+    async (summary) => {
+      const observer = setup(
+        vi
+          .fn<SummarizeProgress>()
+          .mockResolvedValueOnce('Inspecting the repository.')
+          .mockResolvedValueOnce(summary)
+          .mockResolvedValue('Tests passed.'),
+      );
+      observer.observe({ kind: 'stage', message: 'Inspecting repository' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      observer.observe({ kind: 'check', id: 'test', status: 'started' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(observer.emit).toHaveBeenCalledOnce();
+      observer.observe({ kind: 'check', id: 'test', status: 'passed' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(observer.summarize.mock.calls[2]![0]).toEqual({
+        stage: 'Inspecting repository',
+        previousSummary: 'Inspecting the repository.',
+        events: [{ kind: 'check', id: 'test', status: 'passed' }],
+      });
+      expect(observer.emit.mock.calls).toEqual([
+        ['Inspecting the repository.'],
+        ['Tests passed.'],
+      ]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(observer.summarize).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  test.each([2, 50])(
+    'retains only new activity arriving during a request, bounded to 40 events (%s)',
+    async (count) => {
+      let finish: (summary: string) => void = () => {};
+      const observer = setup(
+        vi
+          .fn<SummarizeProgress>()
+          .mockImplementationOnce(
+            () =>
+              new Promise((resolve) => {
+                finish = resolve;
+              }),
+          )
+          .mockResolvedValue('Checks passed.'),
+      );
+      observer.observe({ kind: 'stage', message: 'Implementing' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const events = Array.from({ length: count }, (_, i) => ({
+        kind: 'check' as const,
+        id: `check-${i}`,
+        status: 'passed' as const,
+      }));
+      for (const event of events) observer.observe(event);
+      finish('Implementing the feature.');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(observer.summarize).toHaveBeenCalledTimes(2);
+      expect(observer.summarize.mock.calls[1]![0]).toEqual({
+        stage: 'Implementing',
+        previousSummary: 'Implementing the feature.',
+        events: events.slice(-40),
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(observer.summarize).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test('resuming without unprocessed activity does not repeat a report or call the model', async () => {
+    const observer = setup();
+    observer.observe({ kind: 'stage', message: 'Inspecting repository' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    observer.pause();
+    observer.resume();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(observer.summarize).toHaveBeenCalledOnce();
     expect(observer.emit).toHaveBeenCalledOnce();
   });
 
@@ -87,6 +168,14 @@ describe('background progress observer', () => {
     expect(observer.emit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(900);
     expect(observer.emit).toHaveBeenCalledExactlyOnceWith('Running checks.');
+    expect(observer.summarize.mock.calls[1]![0]).toEqual({
+      stage: 'Running checks',
+      previousSummary: '',
+      events: [
+        { kind: 'stage', message: 'Implementing' },
+        { kind: 'stage', message: 'Running checks' },
+      ],
+    });
   });
 
   test('pauses model calls and output during questions, even if the answer arrives before an old summary', async () => {
@@ -120,6 +209,15 @@ describe('background progress observer', () => {
     expect(observer.emit).toHaveBeenCalledExactlyOnceWith(
       'Implementing the feature.',
     );
+    expect(observer.summarize.mock.calls[1]![0].events).toEqual([
+      { kind: 'stage', message: 'Implementing' },
+      {
+        kind: 'tool',
+        agent: 'exploration',
+        tool: 'ask',
+        status: 'started',
+      },
+    ]);
     observer.pause();
     observer.observe({ kind: 'check', id: 'test', status: 'started' });
     await vi.advanceTimersByTimeAsync(5_000);

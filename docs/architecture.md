@@ -87,7 +87,7 @@ bookkeeping, and round history are not included in initial agent task payloads.
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Exploration       | Original issue text; real user answers arrive through its own ask tool.                                                                                                                  |
 | Implementation    | Issue task, repository-wide non-protected paths, previous candidate's check commands (initially empty); latest repair findings, failed criterion notes, and failed check-log tails only. |
-| QA                | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence references.                                                         |
+| QA                | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence metadata without file paths.                                        |
 | Review            | Issue task, allowed paths, full candidate patch, verification plan, current acceptance results/evidence references, and feedback from the last completed review.                         |
 | PR summary        | Issue title/kind/outcome, final implementation summary, check outcomes, QA criterion results/notes, review outcome, and remaining findings.                                              |
 | Progress observer | Current stage, previous observer summary, latest 40 metadata events.                                                                                                                     |
@@ -98,7 +98,10 @@ decisions, and risks. Approval/readiness/schema fields remain with the controlle
 Assumptions stay explicitly labeled as unverified.
 
 QA does not receive implementation summaries, old reports, server-start/build
-commands, or check-log text. QA/review can read current evidence files on demand.
+commands, file paths, or check-log text. It has no workspace, filesystem, or shell
+tools and does not inspect or review files. QA tests only application behavior
+against acceptance criteria; UI captures arrive directly from its testing tools.
+Review can read current source and evidence files on demand.
 Review also receives the candidate's verification plan to reject missing UI targets
 or ineffective checks selected by implementation.
 Repair feedback strips stale evidence IDs; failed check excerpts keep only the
@@ -117,8 +120,12 @@ protocols and check/QA/review repair paths.
 
 `agents/observer.ts` defines a tool-free Mastra agent for user-facing progress,
 separate from the verified final PR summary. `factory/observer.ts` batches a
-bounded window of metadata and schedules at most one background request at a
-time. Native Mastra tool hooks in `agents/activity.ts` forward only tool names,
+bounded window of unprocessed metadata and schedules at most one background request
+at a time. Accepted summaries consume their event batch, including empty or duplicate
+summaries that produce no output; activity arriving during a request stays pending.
+Discarded stale or paused results do not consume events. The agent uses its previous
+report to avoid repeating facts and can return an empty summary when nothing new
+is worth reporting. Native Mastra tool hooks in `agents/activity.ts` forward only tool names,
 roles, and execution status; workflow stages and trusted check/gate outcomes
 provide the remaining facts. No source, arguments, results, reasoning, user
 answers, or credentials enter the observer prompt.
@@ -225,9 +232,11 @@ initialization variables for individual resources.
 
 `delivery/environment.ts` creates run-owned Mastra `Workspace`,
 `LocalFilesystem`, and `LocalSandbox` instances. Implementation gets filesystem
-and sandbox tools; QA/review filesystem providers are read-only. QA's explicit
-tools invoke agent-browser/agent-device from PATH through Mastra,
-record evidence, and restrict operations and global flags. Project dependency
+and sandbox tools; review's filesystem provider is read-only. QA has no workspace
+or file tools. Its explicit tools invoke agent-browser/agent-device from PATH
+through Mastra, record evidence, and restrict operations and global flags.
+Mastra's `toModelOutput` returns captured UI images inline without exposing a
+file-reading capability. Project dependency
 installs, commands, builds, tests, and background processes use Mastra rather than
 a custom command execution layer. See the
 [sandbox documentation](https://mastra.ai/docs/sandbox/overview).

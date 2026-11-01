@@ -5,6 +5,7 @@ import { LocalSandbox } from '@mastra/core/workspace';
 import { afterEach, expect, test } from 'vitest';
 import { createEvidence } from '../src/delivery/evidence.js';
 import { createQaTools } from '../src/tools/qa.js';
+import { qaResultSchema } from '../src/tools/qa-command.js';
 import { projectPlan, png } from './fixtures/delivery.js';
 
 const resources: { directory: string; sandbox: LocalSandbox }[] = [];
@@ -99,6 +100,104 @@ test('web QA invokes agent-browser with a run-scoped session and the approved UR
     targetId: 'web',
   });
 });
+test.each([
+  ['1280', '800'],
+  ['390', '844'],
+  ['1', '1'],
+  ['10000', '10000'],
+])('web QA records viewport resizing at %s by %s', async (width, height) => {
+  const { tools, evidence, invocation, options } = await setup();
+  await expect(
+    tools.agent_browser!.execute!(
+      { targetId: 'web', operation: 'viewport', args: [width, height] },
+      {},
+    ),
+  ).resolves.toMatchObject({ exitCode: 0, evidenceId: 'r1-e1' });
+  expect((await invocation()).args).toEqual([
+    '--config',
+    options.browserConfig,
+    '--session',
+    'run-r1-web',
+    '--allowed-domains',
+    'localhost',
+    'set',
+    'viewport',
+    width,
+    height,
+  ]);
+  expect(evidence.records[0]).toMatchObject({
+    kind: 'browser',
+    operation: 'viewport',
+    revision: 'candidate',
+    targetId: 'web',
+  });
+});
+test.each([
+  [],
+  ['390'],
+  ['390', '844', '2'],
+  ['0', '844'],
+  ['390', '-1'],
+  ['390.5', '844'],
+  ['10001', '844'],
+  ['390', '10001'],
+  ['1e3', '844'],
+  ['Infinity', '844'],
+  ['390', 'NaN'],
+  [' 390', '844'],
+  ['390', '--session=other'],
+  ['390', '844', '--config', '/private/config'],
+  ['headers', '{"Authorization":"secret"}'],
+])(
+  'rejects invalid viewport arguments without invoking the CLI: %j',
+  async (...args) => {
+    const { tools, evidence, invocation } = await setup();
+    await expect(
+      tools.agent_browser!.execute!(
+        { targetId: 'web', operation: 'viewport', args },
+        {},
+      ),
+    ).rejects.toThrow('viewport requires width and height');
+    expect(evidence.records).toHaveLength(0);
+    await expect(invocation()).rejects.toMatchObject({ code: 'ENOENT' });
+  },
+);
+test('viewport help uses the installed browser syntax but remains help evidence', async () => {
+  const { tools, evidence, invocation } = await setup();
+  await tools.agent_browser!.execute!(
+    { targetId: 'web', operation: 'help', args: ['viewport'] },
+    {},
+  );
+  expect((await invocation()).args.slice(-2)).toEqual(['set', '--help']);
+  expect(evidence.records[0]?.operation).toBe('help');
+  await expect(
+    tools.agent_browser!.execute!(
+      { targetId: 'web', operation: 'help', args: ['viewport', '390'] },
+      {},
+    ),
+  ).rejects.toThrow('one supported operation');
+  expect(evidence.records).toHaveLength(1);
+});
+test('viewport is browser-only and does not expose general browser settings', async () => {
+  const { tools } = await setup();
+  const input = {
+    targetId: 'web',
+    operation: 'viewport',
+    args: ['390', '844'],
+  };
+  expect(
+    await tools.agent_browser!.inputSchema!['~standard'].validate(input),
+  ).not.toHaveProperty('issues');
+  expect(
+    await tools.agent_device!.inputSchema!['~standard'].validate(input),
+  ).toHaveProperty('issues');
+  expect(
+    await tools.agent_browser!.inputSchema!['~standard'].validate({
+      ...input,
+      operation: 'set',
+    }),
+  ).toHaveProperty('issues');
+});
 test('mobile QA invokes agent-device with the configured native platform and device', async () => {
   const { tools, evidence, invocation } = await setup();
   await tools.agent_device!.execute!(
@@ -158,6 +257,65 @@ test('a tool returning success without a valid image is failed evidence', async 
   ).resolves.toMatchObject({ exitCode: 1 });
   expect(evidence.records[0]?.exitCode).toBe(1);
 });
+test.each([
+  ['agent_browser', 'web'],
+  ['agent_device', 'ios'],
+] as const)(
+  '%s returns captured UI images directly to the model without file access',
+  async (name, targetId) => {
+    const { tools } = await setup();
+    const tool = tools[name]!;
+    const result = qaResultSchema.parse(
+      await tool.execute!({ targetId, operation: 'screenshot', args: [] }, {}),
+    );
+    const output = tool.toModelOutput!(result);
+    expect(output).toEqual({
+      type: 'content',
+      value: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            evidenceId: 'r1-e1',
+            exitCode: 0,
+            stdout: 'UI operation complete\n',
+            stderr: '',
+          }),
+        },
+        { type: 'media', data: png.toString('base64'), mediaType: 'image/png' },
+      ],
+    });
+    expect(JSON.stringify(output)).not.toContain('path');
+  },
+);
+test.each([
+  ['agent_browser', 'web'],
+  ['agent_device', 'ios'],
+] as const)(
+  '%s does not send invalid screenshot data to the model',
+  async (name, targetId) => {
+    const { tools } = await setup(true);
+    const tool = tools[name]!;
+    const result = qaResultSchema.parse(
+      await tool.execute!({ targetId, operation: 'screenshot', args: [] }, {}),
+    );
+    expect(result).toMatchObject({ exitCode: 1 });
+    expect(result).not.toHaveProperty('image');
+    expect(tool.toModelOutput!(result)).toEqual({
+      type: 'content',
+      value: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            evidenceId: result.evidenceId,
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          }),
+        },
+      ],
+    });
+  },
+);
 test('help output cannot masquerade as a successful UI snapshot', async () => {
   const { tools, evidence } = await setup();
   await tools.agent_browser!.execute!(

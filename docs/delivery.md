@@ -87,6 +87,12 @@ builds incompatible with the sandbox block the workflow, rather than silently
 disabling isolation or substituting an unrelated app/server. Cross-domain web
 login journeys are not supported yet.
 
+Responsive web QA uses the same web target at different sizes. The browser tool's
+`viewport` operation accepts `[width, height]` as integer strings from 1 to 10000
+CSS pixels, for example `["390", "844"]` for mobile and `["1280", "800"]` for
+desktop. QA captures fresh evidence and checks interactions after resizing; native
+apps still require `agent-device`. Other browser settings are not exposed.
+
 The workflow has one `sessionTimeoutMs` deadline, including exploration, questions,
 confirmation, repairs, and publication. The fixed repair budget allows the initial
 implementation plus at most three repairs, shared by checks, QA, and review.
@@ -96,13 +102,19 @@ No factory API key or GitHub credential environment is passed to project command
 ## Gates and repairs
 
 - Implementation, QA, review, and summary use fresh Mastra agents. Implementation
-  receives filesystem/sandbox tools. QA and review have read-only filesystem
-  providers. Only QA gets constrained browser/device operations; neither gets a
-  general shell or source-write tool. Summary gets no repository or publish tools.
+  receives filesystem/sandbox tools. Review has a read-only filesystem provider.
+  QA has no workspace, filesystem, or shell tools: it only tests running application
+  behavior against acceptance criteria through constrained browser/device operations.
+  It does not inspect or review source, tests, configuration, diffs, or log files.
+  Neither QA nor review gets a general shell or source-write tool.
+  Summary gets no repository or publish tools.
   QA and review must reject missing required UI targets; review also inspects the
   implementation's verification plan for irrelevant, no-op, or weakened checks.
-  Implementers receive check-log excerpts for repairs; QA/review can read current
-  evidence and screenshot images through their read-only filesystem provider.
+  Implementers receive check-log excerpts for repairs; review can read current
+  evidence and screenshot images through its read-only filesystem provider.
+  QA receives evidence metadata without file paths and captured UI images directly
+  from testing tools. Check outcomes cannot replace observing criterion behavior;
+  QA reports criteria it cannot test through available targets as blocked.
   Web and native tools are defined in separate files and exposed as `agent_browser`
   and `agent_device` only when the matching target kind is approved. Each accepts
   an operation such as `open`, `snapshot`, or `screenshot` and literal CLI arguments.
@@ -118,6 +130,9 @@ No factory API key or GitHub credential environment is passed to project command
   candidate; review reruns after QA passes. A prior green result never approves a
   repaired candidate. Scope changes, questions, implementation blockers, missing
   infrastructure, exhausted budgets, or repeated source trees stop automation.
+- For questions, scope changes, and unavailable QA infrastructure, the final JSON's
+  `reason` includes the blocking findings, so the cause is visible without opening
+  `state.json`.
 - Agent-authored acceptance assessments and code reviews are still judgments,
   not mathematical proof. Inspect retained verification artifacts when reviewing the PR; the summary
   is not a gate and cannot override failed verification.

@@ -33,9 +33,10 @@ traceable decisions.
 4. **Validate every handoff.** Machine-consumed outputs are structured and checked
    for both schema validity and meaning: valid references, scope, dependencies,
    requirement coverage, and evidence. Invalid or missing output blocks progress.
-5. **Separate creation from verification.** Independent QA and reviewers evaluate
-   the candidate. Authors cannot approve their own work; reviewers cannot silently
-   repair source or weaken acceptance criteria.
+5. **Separate creation from verification.** QA tests application behavior against
+   acceptance criteria without inspecting files. Independent reviewers inspect
+   source. Authors cannot approve their own work; reviewers cannot silently repair
+   source or weaken acceptance criteria.
 6. **Require evidence.** “Tests pass” is not evidence. Trusted runners record the
    check, environment, result, logs, and tested revision. Gates are computed from
    these records, not agent confidence.
@@ -98,8 +99,10 @@ acceptance criteria, checks, and completion conditions.
   source-write access.
 - Implementers own assigned source paths; test authors own assigned test paths.
   Shared contracts and configuration have a single owner.
-- QA and reviewers receive the approved plan, integrated candidate, and relevant
-  evidence with read-only source access and context independent of the author.
+- QA receives acceptance criteria, constraints, and application targets, with no
+  repository, filesystem, or shell access. It tests observable application behavior.
+- Reviewers receive the approved plan, integrated candidate, and relevant evidence
+  with read-only source access and context independent of the author.
 - Trusted workers enforce permissions, execute checks, integrate changes, and
   publish. Agents request these operations; they do not control the gates.
 

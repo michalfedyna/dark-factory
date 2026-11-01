@@ -84,6 +84,7 @@ export function deliveryGate(
       blocking.some((finding) => finding.kind !== 'defect')
     )
       reason =
+        blocking.map((finding) => finding.description).join('\n') ||
         'A question, scope change, or unavailable QA target requires user input.';
     else if (state.round > maxRepairRounds) reason = 'Repair budget exhausted.';
     else if (repeated)

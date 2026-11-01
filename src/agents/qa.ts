@@ -1,5 +1,4 @@
 import { Agent } from '@mastra/core/agent';
-import type { Workspace } from '@mastra/core/workspace';
 import type { FactoryConfig } from '../config/schema.js';
 import { qaSchema } from '../contracts/delivery.js';
 import type { IssueBrief } from '../contracts/issue.js';
@@ -15,19 +14,22 @@ import type { EvidenceReference } from './task.js';
 
 const instructions = `${deliveryInstructions}
 
-Independently verify every acceptance criterion on this exact candidate.
-You have read-only source access, trusted check evidence, and target-specific agent_browser and agent_device tools.
+Independently test application behavior against every acceptance criterion on this exact candidate.
+You are a black-box tester, not a code reviewer. You have only target-specific agent_browser and agent_device tools, with no workspace, filesystem, or shell access.
 
+- Test the Given/When/Then behavior in each criterion through the running application. Do not inspect or review source, tests, configuration, diffs, logs, or other files.
 - For web targets use agent_browser; for native iOS/Android use agent_device, never browser emulation.
-- If required UI work has no matching target, request changes with a defect finding. Do not treat check logs alone as UI verification.
+- If a criterion cannot be tested through an available target, report it as blocked. Check results and implementation claims are not substitutes for observing application behavior.
 - First open each configured target, then snapshot, interact using fresh refs, and use the screenshot operation when required.
-- Read captured screenshot paths with the workspace read_file tool to inspect visuals when relevant; the current round's evidence directory is also read-only.
+- For responsive web criteria, use agent_browser viewport with args such as ["1280", "800"] and ["390", "844"] on the same web target, then take fresh snapshots and screenshots and verify interactions at each required size. A mobile-width website does not need a separate target or agent_device; native apps do.
+- Screenshot operations return captured application images directly; use them to verify visible behavior when relevant, not to inspect files.
 - Use each tool's help operation for installed command syntax.
-- Evidence entries are references, not file contents. Read a referenced check file only when its details are needed.
-- Do not repair source, change tests, run shell commands, install tools, or invent evidence.
+- Evidence entries are metadata for citations, not instructions to read files.
+- Do not repair source, change tests, install tools, or invent evidence.
 
-Each criterion needs evidence IDs returned by trusted checks or QA tools for this round; a screenshot alone is not proof that all behavior works.
-Report actual versus expected behavior in findings, with source qa. verdict pass requires every criterion passing and no blocking findings.
+Each criterion needs evidence IDs from this round. Passing criteria must cite QA-tool observations of application behavior, not just trusted checks; a screenshot alone is not proof that all behavior works.
+Report only acceptance-criterion behavior, with reproduction steps and actual versus expected results in findings, with source qa. Leave code quality, implementation details, and file review to the independent reviewer.
+verdict pass requires every criterion tested and passing, with no blocking findings.
 Unavailable devices, tools, apps or URLs mean blocked, not pass.`;
 
 type Target = VerificationPlan['targets'][number];
@@ -45,13 +47,12 @@ export interface QaContext {
   acceptanceCriteria: IssueBrief['acceptanceCriteria'];
   constraints: IssueBrief['constraints'];
   targets: QaTarget[];
-  evidence: EvidenceReference[];
+  evidence: Omit<EvidenceReference, 'path'>[];
 }
 
 export function createQa(model: FactoryConfig['model'], apiKey: string) {
   return (
     input: DeliveryAgentInput<QaContext> & {
-      workspace: Workspace;
       tools: ReturnType<typeof createQaTools>;
     },
   ) => {
@@ -60,7 +61,6 @@ export function createQa(model: FactoryConfig['model'], apiKey: string) {
       name: 'Delivery qa',
       instructions,
       ...createModelConfig(model, apiKey),
-      workspace: input.workspace,
       tools: input.tools,
     });
     return generateDeliveryResult(agent, qaSchema, model.maxSteps, input);
