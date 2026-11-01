@@ -1,5 +1,11 @@
 # Software Factory Workflow
 
+**Target design, not the current implementation.** For implemented behavior and
+code ownership, read [architecture.md](architecture.md) and [delivery.md](delivery.md).
+The current CLI ends at an explicitly approved draft PR; it does not yet implement
+the planning/task graph, durable recovery, design integrations, or PR-check loop
+described below.
+
 ## 1. Goal
 
 Turn a user request into reviewed, tested software and a pull request through a

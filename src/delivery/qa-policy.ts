@@ -1,6 +1,6 @@
-import type { Project } from '../../contracts/project.js';
-import type { DeliveryRound, Finding } from '../../contracts/delivery.js';
-import type { IssueBrief } from '../../contracts/issue.js';
+import type { Project } from '../contracts/project.js';
+import type { DeliveryRound, Finding } from '../contracts/delivery.js';
+import type { IssueBrief } from '../contracts/issue.js';
 
 export function validateQa(
   brief: IssueBrief,

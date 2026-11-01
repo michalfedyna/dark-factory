@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalSandbox } from '@mastra/core/workspace';
 import { afterEach, expect, test } from 'vitest';
-import { createEvidence } from '../src/integrations/qa/evidence.js';
+import { createEvidence } from '../src/delivery/evidence.js';
 import { createQaTools } from '../src/tools/qa.js';
-import { deliveryConfig, png } from './fixtures/delivery.js';
+import { projectPlan, png } from './fixtures/delivery.js';
 
 const resources: { directory: string; sandbox: LocalSandbox }[] = [];
 afterEach(async () => {
@@ -34,8 +34,8 @@ async function setup(badImage = false) {
   const evidence = createEvidence(join(directory, 'evidence'), 'candidate', 1);
   const browserConfig = join(directory, 'browser.json');
   await writeFile(browserConfig, '{}');
-  const config = {
-    ...deliveryConfig,
+  const project = {
+    ...projectPlan,
     browserCommand: executable,
     deviceCommand: executable,
     targets: [
@@ -58,8 +58,8 @@ async function setup(badImage = false) {
     ],
   };
   const options = {
-    config,
-    sandbox,
+    project,
+    automationSandbox: sandbox,
     evidence,
     session: 'run-r1',
     browserConfig,
@@ -188,18 +188,20 @@ test('QA exposes only integrations applicable to the configured targets', async 
   const { options } = await setup();
   const web = createQaTools({
     ...options,
-    config: {
-      ...options.config,
-      targets: options.config.targets.filter((target) => target.kind === 'web'),
+    project: {
+      ...options.project,
+      targets: options.project.targets.filter(
+        (target) => target.kind === 'web',
+      ),
     },
   });
   expect(web.agent_browser).toBeDefined();
   expect(web.agent_device).toBeUndefined();
   const mobile = createQaTools({
     ...options,
-    config: {
-      ...options.config,
-      targets: options.config.targets.filter(
+    project: {
+      ...options.project,
+      targets: options.project.targets.filter(
         (target) => target.kind === 'mobile',
       ),
     },
@@ -207,7 +209,7 @@ test('QA exposes only integrations applicable to the configured targets', async 
   expect(mobile.agent_device).toBeDefined();
   expect(mobile.agent_browser).toBeUndefined();
   expect(
-    createQaTools({ ...options, config: { ...options.config, targets: [] } }),
+    createQaTools({ ...options, project: { ...options.project, targets: [] } }),
   ).toEqual({});
 });
 

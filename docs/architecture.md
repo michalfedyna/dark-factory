@@ -1,18 +1,30 @@
 # CLI software factory
 
+This describes the current implementation. [Workflow.md](Workflow.md) is the
+broader target design; durable recovery, planning agents, and PR feedback are not
+implemented here.
+
 ## Boundaries
 
 - `contracts/` defines data and callback interfaces without importing application
   modules. It contains no presentation markup or browser transport state.
-- `agents/` defines model behavior. `tools/` adapts the injected `Ask` capability
-  into a Mastra tool. Neither depends on terminal rendering.
+- `agents/` defines model behavior and role-specific context types. `tools/`
+  exposes the injected `Ask` capability and constrained browser/device tools.
+  Neither depends on terminal rendering.
 - `workflows/default.ts` defines the single end-to-end `default` workflow with
-  typed steps and a nested delivery repair cycle. Agents and project inspection
-  are injectable for offline tests.
+  named steps and a nested delivery repair cycle. `workflows/steps.ts` owns Mastra
+  step schemas, request context, signal composition, exploration, and recording
+  after delivery steps. Detailed delivery behavior is in `delivery/steps.ts`.
+- `delivery/` owns the issue-to-candidate application behavior: live environments,
+  agent sessions, deterministic checks, gates, evidence/artifacts, and finishing.
+  `delivery/operations.ts` is the interface between workflows and delivery
+  execution; runtime code does not import the workflow implementation.
 - `factory/` registers the workflow with Mastra, adapts CLI cancellation/deadlines to
-  workflow runs, maps failures to safe messages, and provides output persistence.
-- `integrations/router/` owns only the proxy process it starts. It waits for the
-  authenticated model catalog and handles bounded startup/shutdown.
+  workflow runs, maps failures to safe messages, and owns background observation.
+- `integrations/` owns external Git, GitHub, and proxy adapters. The router adapter
+  owns only the process it starts, waits for the authenticated model catalog, and
+  handles bounded startup/shutdown. Domain gates and PR text belong in `delivery/`,
+  not in external adapters.
 - `cli/` loads config/environment and connects Commander, Clack, stdin/stderr,
   structured stdout, and process signals to the factory.
 
@@ -57,6 +69,42 @@ One invocation runs one issue from exploration to delivery. There is no separate
 exploration-only command or `--deliver` opt-in. Start another invocation for another issue.
 There is no custom Sessions class, session polling, browser state, or durable
 conversation resume. Mastra owns step sequencing, run IDs, and execution status.
+
+## Agent context
+
+Workflow state and model context are separate. `delivery/agent-context.ts` selects
+explicit, typed inputs for each delivery role; `agents/shared.ts` serializes only
+that selected context. Full state, workflow status/reason, base/tree/revision
+bookkeeping, and round history are not included in initial agent task payloads.
+
+| Agent                 | Direct task input                                                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exploration           | Original issue text; real user answers arrive through its own ask tool.                                                                       |
+| Repository inspection | Approved issue task; no Git branch, commit, remote, or full brief envelope.                                                                   |
+| Implementation        | Issue task, allowed paths, check commands; latest repair findings, failed criterion notes, and failed check-log tails only.                   |
+| QA                    | Acceptance criteria, constraints, target IDs/addresses/device settings/screenshot requirements, and current evidence references.              |
+| Review                | Issue task, allowed paths, full candidate patch, current acceptance results/evidence references, and feedback from the last completed review. |
+| PR summary            | Issue title/kind/outcome, final implementation summary, check outcomes, QA criterion results/notes, review outcome, and remaining findings.   |
+| Progress observer     | Current stage, previous observer summary, latest 40 metadata events.                                                                          |
+
+`agents/task.ts` selects issue-task content: problem, desired outcome, affected
+users, scope, requirements, acceptance criteria, constraints, assumptions, user
+decisions, and risks. Approval/readiness/schema fields remain with the controller.
+Assumptions stay explicitly labeled as unverified.
+
+QA does not receive implementation summaries, old reports, server-start/build
+commands, or check-log text. QA/review can read current evidence files on demand.
+Repair feedback strips stale evidence IDs; failed check excerpts keep only the
+last 12,000 characters per failed check. Review receives only the last relevant
+reviewer's findings, even if an intervening attempt failed before review. Summary
+does not receive patches, raw logs, evidence paths, targets, or historical attempts.
+
+Role instructions, output schemas, framework workspace/tool definitions, and an
+agent's own tool-loop messages still enter model context normally. This selection
+is not a new security boundary or a token-budget/compression engine. Mastra retains
+the existing orchestration and tool access; the workflow keeps full state for gates,
+repair accounting, and persisted artifacts. Prompt-boundary tests cover both API
+protocols and check/QA/review repair paths.
 
 ## Progress observer
 
@@ -104,6 +152,11 @@ Raw provider errors are not copied into user-facing error messages.
 Structured output uses schema prompt injection to coexist with tool calls through
 the compatible proxy. It is still strictly validated. Responses is the default
 protocol; Chat Completions is configurable and integration-tested.
+All agents use the transport defaults in `agents/model.ts`. Responses explicitly
+sets `openai.store: false` and requests `reasoning.encrypted_content`, including
+for custom model aliases. Mastra's SDK replays messages, function calls/results,
+and encrypted reasoning rather than referencing proxy-side stored items. Reasoning
+without encrypted content is omitted. Chat uses no Responses-specific options.
 
 ## Growing the factory
 
@@ -132,7 +185,11 @@ initial provider's limits.
 Each agent owns its instructions, Mastra definition, and output contract in
 `agents/exploration.ts`, `agents/project.ts`, `agents/implementation.ts`, `agents/qa.ts`,
 `agents/review.ts`, or `agents/summary.ts`. `agents/shared.ts` only shares delivery
-instructions, model transport configuration, and structured-output generation.
+instructions and structured-output generation; `agents/model.ts` owns the common
+model transport configuration for all agents, including exploration and observation.
+`agents/task.ts` owns the common task/evidence/repair prompt types and the approved
+task projection. Each role owns its narrower context type; the delivery boundary
+builds those contexts without exposing workflow state to the agents.
 
 QA's `agent_browser` and `agent_device` tools are defined separately in
 `tools/agent-browser.ts` and `tools/agent-device.ts`. Each handles its own CLI
@@ -140,7 +197,11 @@ arguments and target kind, including screenshot operations. `tools/qa.ts` only
 assembles the integrations required by the approved targets; `tools/qa-command.ts`
 shares argument validation, sandbox execution, and evidence recording.
 
-`factory/delivery-runtime.ts` creates run-owned Mastra `Workspace`,
+`delivery/runtime.ts` composes an environment owner, agent sessions, checks, QA
+validation, and finishing through `DeliveryOperations`. It does not own mutable
+initialization variables for individual resources.
+
+`delivery/environment.ts` creates run-owned Mastra `Workspace`,
 `LocalFilesystem`, and `LocalSandbox` instances. Implementation gets filesystem
 and sandbox tools; QA/review filesystem providers are read-only. QA's explicit
 tools invoke agent-browser/agent-device from PATH through Mastra,
@@ -148,6 +209,65 @@ record evidence, and restrict operations and global flags. Project dependency
 installs, commands, builds, tests, and background processes use Mastra rather than
 a custom command execution layer. See the
 [sandbox documentation](https://mastra.ai/docs/sandbox/overview).
+
+### Delivery code map
+
+| Module                                  | Responsibility                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `delivery/preparation.ts`               | Validate the inferred project plan, recheck the pinned base, require isolation and exact implementation approval. |
+| `delivery/environment.ts`               | Acquire resources, expose a prepared run/current round, and clean up even after partial setup.                    |
+| `delivery/context.ts`                   | Typed live `RunResources`, revision-bound `RoundResources`, and delivery inputs.                                  |
+| `delivery/agent-sessions.ts`            | Assemble typed role inputs and bound implementation/QA sessions.                                                  |
+| `delivery/checks.ts`                    | Execute approved commands and record check findings/evidence.                                                     |
+| `delivery/qa-session.ts`                | Own round-specific automation sessions and background QA servers.                                                 |
+| `delivery/steps.ts`, `state.ts`         | Delivery step behavior and immutable current-round replacement with explicit preconditions.                       |
+| `delivery/qa-policy.ts`, `policy.ts`    | Pure QA evidence validation, review reference validation, stage eligibility, and repair/approval decisions.       |
+| `delivery/artifacts.ts`, `evidence.ts`  | Private run files, check-log excerpts, revision-bound evidence, and PNG validation.                               |
+| `delivery/finish.ts`, `pull-request.ts` | Local preview/result, publication approval, and PR sections. GitHub side effects stay in its adapter.             |
+
+Factory configuration (`FactoryConfig`) controls model transport, observation,
+router lifecycle, and the whole-run deadline. The inspected project plan (`Project`)
+controls approved repository setup, checks, scope, and QA targets. These are not
+interchangeable. For artifact compatibility, `input.json` still stores the project
+plan under its existing `config` key.
+
+### Resource and state ownership
+
+- A run context is available only after inspection, approval, resource setup, and
+  dependencies succeed. Operations fail explicitly if preparation is incomplete.
+- Resources are registered as soon as acquired. A static workspace owns its
+  sandbox once construction succeeds; until then the environment retains cleanup
+  ownership. The Git checkout and artifacts are retained, not deleted on cleanup.
+- Checks create a fresh round context with its round number, revision, evidence
+  recorder, and QA session. QA rejects a context for another round or revision.
+- QA owns configured server handles and automation session names for that round.
+  It closes sessions and stops project processes in `finally`, including partial
+  server startup. Cleanup uses a separate 10-second signal and 8-second command
+  timeout, even when the run is cancelled. Repeated close calls share completion.
+- Closing an environment aborts its setup lifetime. Late inspection/setup results
+  cannot expose a ready run or acquire more live resources. Cleanup attempts all
+  acquired resources even if QA cleanup fails.
+- `DeliveryState` contains only serializable brief/candidate/history/summary data.
+  Workspaces, sandboxes, processes, and evidence recorders stay in live contexts.
+  Each step returns a new state/round rather than mutating earlier workflow inputs.
+- `currentRound` checks that the latest captured round matches the state counter.
+  An implementation blocker may advance the counter without capturing a round;
+  blocked stages skip that precondition and finishing retains the existing result
+  semantics.
+
+### Validation and compatibility
+
+Agents validate their structured results; workflow steps independently parse them
+again. QA/review policies validate criterion and evidence references. Trusted Git
+checks enforce approved paths and candidate immutability. Publication independently
+requires passing gates, a summary, an unchanged candidate, a matching GitHub base,
+and a metadata-only evidence commit. Approval labels, schemas, private file formats,
+repair budget, deadlines, and uncertain-publication journaling are unchanged.
+
+Tests separate pure state/policy and lifecycle regressions from real Mastra/CLI
+integration scenarios. `test/fixtures/integration.ts` owns common repository and
+process setup; the fake provider's protocol codec is separate from role/scenario
+behavior. Role routing uses structured inputs, not incidental instruction strings.
 
 Scope environments to a task or workflow run. For resolver-backed workspaces, use
 a corresponding `sandboxCacheKey`; keep track of created sandboxes, destroy them

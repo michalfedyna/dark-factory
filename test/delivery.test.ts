@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { runDefault } from '../src/factory/run.js';
 import type { DeliveryRound, Finding } from '../src/contracts/delivery.js';
-import { validateQa } from '../src/integrations/qa/gate.js';
+import { validateQa } from '../src/delivery/qa-policy.js';
 import { brief } from './fixtures/brief.js';
 import {
   createWorkflowSetup as setup,
@@ -182,6 +182,31 @@ describe('default workflow delivery stages', () => {
     const result = await run();
     expect(result.status).toBe('blocked');
     expect(result.reason).toContain('no progress');
+    expect(operations.summarize).not.toHaveBeenCalled();
+  });
+  test('an implementation blocker during repair retains the previous candidate without validating it as the new round', async () => {
+    const { run, operations } = setup();
+    operations.review.mockResolvedValueOnce({
+      verdict: 'changes-requested',
+      summary: 'Fix the defect.',
+      findings: [finding('review')],
+    });
+    operations.implement
+      .mockResolvedValueOnce({ summary: 'First candidate.', blockers: [] })
+      .mockResolvedValueOnce({
+        summary: 'Cannot repair within scope.',
+        blockers: ['The API contract is missing.'],
+      });
+    await expect(run()).resolves.toMatchObject({
+      status: 'blocked',
+      rounds: 2,
+      revision: 'revision-1',
+      reason: 'The API contract is missing.',
+      summary: null,
+    });
+    expect(operations.capture).toHaveBeenCalledOnce();
+    expect(operations.qa).toHaveBeenCalledOnce();
+    expect(operations.review).toHaveBeenCalledOnce();
     expect(operations.summarize).not.toHaveBeenCalled();
   });
   test.each([

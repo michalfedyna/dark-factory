@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Evidence } from '../../contracts/delivery.js';
+import type { Evidence } from '../contracts/delivery.js';
 
 export function createEvidence(
   directory: string,

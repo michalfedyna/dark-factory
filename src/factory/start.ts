@@ -8,7 +8,7 @@ import type { Observe } from '../contracts/progress.js';
 import { inspectRepository } from '../integrations/git/inspect.js';
 import { startRouter } from '../integrations/router/process.js';
 import { createDefaultWorkflow } from '../workflows/default.js';
-import { createDeliveryRuntime } from './delivery-runtime.js';
+import { createDeliveryRuntime } from '../delivery/runtime.js';
 import { runDefault } from './run.js';
 import { createProgressObserver } from './observer.js';
 

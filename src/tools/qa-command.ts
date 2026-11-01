@@ -7,7 +7,7 @@ import type { Project } from '../contracts/project.js';
 import {
   validateScreenshot,
   type EvidenceRecorder,
-} from '../integrations/qa/evidence.js';
+} from '../delivery/evidence.js';
 
 const operations = [
   'open',
@@ -50,8 +50,8 @@ export const qaCommandSchema = z.strictObject({
 });
 
 export interface QaToolOptions {
-  config: Project;
-  sandbox: LocalSandbox;
+  project: Project;
+  automationSandbox: LocalSandbox;
   evidence: EvidenceRecorder;
   session: string;
   browserConfig: string;
@@ -107,10 +107,14 @@ export async function executeQaCommand(
   options.signal.throwIfAborted();
   let result;
   try {
-    result = await options.sandbox.executeCommand!(input.command, input.args, {
-      abortSignal: options.signal,
-      timeout: 120_000,
-    });
+    result = await options.automationSandbox.executeCommand!(
+      input.command,
+      input.args,
+      {
+        abortSignal: options.signal,
+        timeout: 120_000,
+      },
+    );
   } catch {
     options.signal.throwIfAborted();
     result = {

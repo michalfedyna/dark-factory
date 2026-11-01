@@ -8,9 +8,10 @@ import {
   readBase,
 } from '../src/integrations/git/repository.js';
 import { publishPullRequest } from '../src/integrations/github/publish.js';
+import { renderPullRequest } from '../src/delivery/pull-request.js';
 import type { DeliveryState } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
-import { deliveryConfig, png } from './fixtures/delivery.js';
+import { projectPlan, png } from './fixtures/delivery.js';
 
 const external = vi.hoisted(() => ({ fail: false, base: '' }));
 vi.mock('../src/integrations/git/command.js', async (importOriginal) => {
@@ -132,7 +133,7 @@ async function setup() {
     ],
   };
   return {
-    config: deliveryConfig,
+    project: projectPlan,
     repository,
     state,
     runId: 'test-run',
@@ -193,6 +194,49 @@ test('publishes only verified code and evidence, links screenshots, and creates 
       ':(exclude).darkfactory/evidence',
     ]),
   ).toBe('');
+});
+
+test('named PR sections preserve the existing Markdown format', async () => {
+  const { state } = await setup();
+  const round = state.history[0]!;
+  const screenshots = [...round.evidence];
+  round.evidence.push({
+    id: 'check',
+    revision: round.revision,
+    kind: 'check',
+    targetId: null,
+    operation: 'test',
+    exitCode: 0,
+    path: 'private.json',
+  });
+  expect(
+    renderPullRequest(
+      state,
+      screenshots,
+      () => 'https://example.com/image.png',
+    ),
+  ).toBe(`## Summary
+- Add CSV export.
+
+## Verification
+- Tests passed.
+
+Code candidate: \`${round.revision}\`
+Base: \`${state.baseRevision}\`
+Implementation rounds: 1
+QA: pass; review: pass.
+
+- test: pass (\`check\`)
+
+## Screenshots
+### web (r1-e1)
+![r1-e1](https://example.com/image.png)
+
+## Limitations
+- No additional limitations reported.
+
+This is a draft PR for human review. CI and GitHub reviews have not been verified. Evidence is added in a metadata-only commit after the tested code candidate.
+`);
 });
 test('failed gates cannot call push or GitHub even when invoked directly', async () => {
   const options = await setup();

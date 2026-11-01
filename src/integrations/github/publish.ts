@@ -1,43 +1,24 @@
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Project } from '../../contracts/project.js';
-import type { DeliveryState, Evidence } from '../../contracts/delivery.js';
+import type { DeliveryState } from '../../contracts/delivery.js';
 import type { RunRepository } from '../git/repository.js';
 import { hostCommand } from '../git/command.js';
-import { validateScreenshot } from '../qa/evidence.js';
-
-export function renderPullRequest(
-  state: DeliveryState,
-  screenshots: Evidence[],
-  imageUrl: (record: Evidence) => string,
-): string {
-  if (!state.summary) throw new Error('A verified summary is required.');
-  const round = state.history.at(-1)!;
-  const bullets = (values: string[]) =>
-    values.map((value) => `- ${value}`).join('\n');
-  return `## Summary\n${bullets(state.summary.changes)}\n\n## Verification\n${bullets(state.summary.testing)}\n\nCode candidate: \`${round.revision}\`\nBase: \`${state.baseRevision}\`\nImplementation rounds: ${state.round}\nQA: ${round.qa?.verdict ?? 'not run'}; review: ${round.review?.verdict ?? 'not run'}.\n\n${round.evidence
-    .filter((record) => record.kind === 'check')
-    .map(
-      (record) =>
-        `- ${record.operation}: ${record.exitCode === 0 ? 'pass' : 'fail'} (\`${record.id}\`)`,
-    )
-    .join(
-      '\n',
-    )}\n\n## Screenshots\n${screenshots.length ? screenshots.map((record) => `### ${record.targetId ?? 'QA'} (${record.id})\n![${record.id}](${imageUrl(record)})`).join('\n\n') : 'Not required for the configured targets.'}\n\n## Limitations\n${state.summary.limitations.length ? bullets(state.summary.limitations) : '- No additional limitations reported.'}\n\nThis is a draft PR for human review. CI and GitHub reviews have not been verified. Evidence is added in a metadata-only commit after the tested code candidate.\n`;
-}
+import { validateScreenshot } from '../../delivery/evidence.js';
+import { renderPullRequest } from '../../delivery/pull-request.js';
 
 export async function publishPullRequest(options: {
-  config: Pick<Project, 'githubRepo' | 'baseBranch'>;
+  project: Pick<Project, 'githubRepo' | 'baseBranch'>;
   repository: RunRepository;
   state: DeliveryState;
   runId: string;
   directory: string;
   signal: AbortSignal;
 }): Promise<string> {
-  const { config, repository, state, runId, directory, signal } = options;
-  if (!config.githubRepo)
+  const { project, repository, state, runId, directory, signal } = options;
+  if (!project.githubRepo)
     throw new Error('A GitHub remote is required for publication.');
-  const round = state.history.at(-1)!;
+  const round = state.history.at(-1);
   if (
     state.status !== 'approved' ||
     !state.summary ||
@@ -55,7 +36,7 @@ export async function publishPullRequest(options: {
         'api',
         '--hostname',
         'github.com',
-        `repos/${config.githubRepo}/git/ref/heads/${encodeURIComponent(config.baseBranch)}`,
+        `repos/${project.githubRepo}/git/ref/heads/${encodeURIComponent(project.baseBranch)}`,
         '--jq',
         '.object.sha',
       ],
@@ -132,7 +113,7 @@ export async function publishPullRequest(options: {
     state,
     screenshots,
     (record) =>
-      `https://github.com/${config.githubRepo}/raw/${revision}/${relativeDirectory}/${record.id}.png`,
+      `https://github.com/${project.githubRepo}/raw/${revision}/${relativeDirectory}/${record.id}.png`,
   );
   const bodyFile = join(directory, 'pull-request.md');
   await writeFile(bodyFile, body, { mode: 0o600 });
@@ -141,7 +122,7 @@ export async function publishPullRequest(options: {
     branch,
     codeRevision: round.revision,
     revision,
-    repository: config.githubRepo,
+    repository: project.githubRepo,
     bodyFile: basename(bodyFile),
   };
   await writeFile(
@@ -154,7 +135,7 @@ export async function publishPullRequest(options: {
     await repository.git(
       [
         'push',
-        `https://github.com/${config.githubRepo}.git`,
+        `https://github.com/${project.githubRepo}.git`,
         `HEAD:refs/heads/${branch}`,
       ],
       signal,
@@ -166,9 +147,9 @@ export async function publishPullRequest(options: {
           'pr',
           'create',
           '--repo',
-          `https://github.com/${config.githubRepo}`,
+          `https://github.com/${project.githubRepo}`,
           '--base',
-          config.baseBranch,
+          project.baseBranch,
           '--head',
           branch,
           '--draft',
@@ -183,7 +164,7 @@ export async function publishPullRequest(options: {
     ).trim();
     if (
       !new RegExp(
-        `^https://github\\.com/${config.githubRepo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/pull/\\d+$`,
+        `^https://github\\.com/${project.githubRepo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/pull/\\d+$`,
       ).test(url)
     )
       throw new Error('GitHub did not return a pull request URL.');

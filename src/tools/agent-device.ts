@@ -14,7 +14,7 @@ export function createAgentDeviceTool(options: QaToolOptions) {
     inputSchema: qaCommandSchema,
     execute: async ({ targetId, operation, args }) => {
       options.signal.throwIfAborted();
-      const target = options.config.targets.find(
+      const target = options.project.targets.find(
         (entry) => entry.id === targetId,
       );
       if (!target || target.kind !== 'mobile')
@@ -29,7 +29,7 @@ export function createAgentDeviceTool(options: QaToolOptions) {
         kind: 'device',
         targetId,
         operation,
-        command: options.config.deviceCommand,
+        command: options.project.deviceCommand,
         args: [
           operation,
           ...prepared,

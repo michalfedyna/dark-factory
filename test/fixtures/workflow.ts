@@ -4,11 +4,9 @@ import { afterEach, vi } from 'vitest';
 import type { Explore } from '../../src/agents/exploration.js';
 import type { Ask } from '../../src/contracts/interaction.js';
 import { runDefault } from '../../src/factory/run.js';
-import { validateQa } from '../../src/integrations/qa/gate.js';
-import {
-  createDefaultWorkflow,
-  type DeliveryOperations,
-} from '../../src/workflows/default.js';
+import { validateQa } from '../../src/delivery/qa-policy.js';
+import type { DeliveryOperations } from '../../src/delivery/operations.js';
+import { createDefaultWorkflow } from '../../src/workflows/default.js';
 import { brief } from './brief.js';
 
 const factories: Mastra[] = [];

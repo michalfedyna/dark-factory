@@ -55,9 +55,9 @@ export const projectPlanSchema = z
       )
       .default([]),
   })
-  .superRefine((config, context) => {
+  .superRefine((plan, context) => {
     for (const field of ['checks', 'targets'] as const) {
-      const ids = config[field].map((entry) => entry.id);
+      const ids = plan[field].map((entry) => entry.id);
       if (ids.length !== new Set(ids).size)
         context.addIssue({
           code: 'custom',

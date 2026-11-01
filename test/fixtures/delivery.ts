@@ -1,6 +1,44 @@
-import { projectSchema } from '../../src/contracts/project.js';
+import {
+  projectPlanSchema,
+  projectSchema,
+} from '../../src/contracts/project.js';
+import type { DeliveryState } from '../../src/contracts/delivery.js';
+import { brief } from './brief.js';
 
-export const deliveryConfig = projectSchema.parse({
+export function candidateState(): DeliveryState {
+  return {
+    brief: structuredClone(brief),
+    baseRevision: 'base',
+    round: 1,
+    status: 'repair',
+    reason: '',
+    summary: null,
+    history: [
+      {
+        round: 1,
+        revision: 'revision',
+        tree: 'tree',
+        implementation: { summary: 'Implemented.', blockers: [] },
+        evidence: [
+          {
+            id: 'test',
+            revision: 'revision',
+            kind: 'check',
+            targetId: null,
+            operation: 'test',
+            exitCode: 0,
+            path: 'test.json',
+          },
+        ],
+        findings: [],
+        qa: null,
+        review: null,
+      },
+    ],
+  };
+}
+
+export const projectPlan = projectSchema.parse({
   repository: '.',
   baseBranch: 'main',
   githubRepo: 'example/project',
@@ -14,6 +52,39 @@ export const deliveryConfig = projectSchema.parse({
         '-e',
         "if (require('node:fs').readFileSync('feature.txt', 'utf8') !== 'implemented') process.exit(1)",
       ],
+    },
+  ],
+});
+
+export const uiProjectPlan = projectPlanSchema.parse({
+  allowedPaths: projectPlan.allowedPaths,
+  allowNetwork: true,
+  checks: [
+    {
+      id: 'test',
+      command: process.execPath,
+      args: [
+        '-e',
+        "if (!require('node:fs').readFileSync('feature.txt', 'utf8').startsWith('implemented')) process.exit(1)",
+      ],
+    },
+  ],
+  targets: [
+    {
+      id: 'web',
+      kind: 'web',
+      url: 'http://localhost:3000',
+      start: {
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+      },
+    },
+    {
+      id: 'ios',
+      kind: 'mobile',
+      platform: 'ios',
+      app: 'com.example.app',
+      prepare: { command: process.execPath, args: ['-e', 'process.exit(0)'] },
     },
   ],
 });

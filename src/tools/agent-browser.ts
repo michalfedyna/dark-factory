@@ -14,7 +14,7 @@ export function createAgentBrowserTool(options: QaToolOptions) {
     inputSchema: qaCommandSchema,
     execute: async ({ targetId, operation, args }) => {
       options.signal.throwIfAborted();
-      const target = options.config.targets.find(
+      const target = options.project.targets.find(
         (entry) => entry.id === targetId,
       );
       if (!target || target.kind !== 'web')
@@ -29,7 +29,7 @@ export function createAgentBrowserTool(options: QaToolOptions) {
         kind: 'browser',
         targetId,
         operation,
-        command: options.config.browserCommand,
+        command: options.project.browserCommand,
         args: [
           '--config',
           options.browserConfig,

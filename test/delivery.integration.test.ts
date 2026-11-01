@@ -1,46 +1,29 @@
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import {
-  chmod,
-  copyFile,
   mkdtemp,
   mkdir,
   readFile,
   readdir,
   realpath,
   rm,
-  symlink,
   writeFile,
 } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
-import { hostCommand } from '../src/integrations/git/command.js';
 import { deliveryResultSchema } from '../src/contracts/delivery.js';
 import { brief } from './fixtures/brief.js';
-import { deliveryConfig } from './fixtures/delivery.js';
-
-async function availablePort() {
-  const server = createServer();
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('No port.');
-  await new Promise<void>((resolve) => {
-    server.close(() => {
-      resolve();
-    });
-  });
-  return address.port;
-}
+import { uiProjectPlan } from './fixtures/delivery.js';
+import {
+  createTestRepository,
+  installQaAutomation,
+  startCompiledFactory,
+} from './fixtures/integration.js';
 
 test.each([
   ['chat', 'delivery', 1],
   ['responses', 'delivery', 1],
   ['responses', 'delivery-qa-repair', 2],
+  ['responses', 'delivery-check-repair', 2],
   ['chat', 'delivery-review-repair', 2],
 ] as const)(
   'compiled default workflow: exploration through delivery with real workspaces and optional repair (%s, %s)',
@@ -48,156 +31,123 @@ test.each([
     const directory = await mkdtemp(
       join(tmpdir(), 'darkfactory-delivery-e2e-'),
     );
-    let child: ReturnType<typeof spawn> | undefined;
+    let run: Awaited<ReturnType<typeof startCompiledFactory>> | undefined;
     try {
-      const source = join(directory, 'source');
-      await mkdir(source);
-      const signal = new AbortController().signal;
-      const git = (args: string[]) =>
-        hostCommand(
-          'git',
-          [
-            '-C',
-            source,
-            '-c',
-            'core.hooksPath=/dev/null',
-            '-c',
-            'commit.gpgsign=false',
-            ...args,
-          ],
-          signal,
-        );
-      await git(['init', '-b', 'main']);
-      await git(['config', 'user.name', 'Test']);
-      await git(['config', 'user.email', 'test@example.com']);
-      await git([
-        'remote',
-        'add',
-        'origin',
+      const { source, git, base } = await createTestRepository(
+        directory,
+        {
+          'original.txt': 'original',
+          'package.json': JSON.stringify({
+            name: 'test-project',
+            scripts: {
+              test: 'node check.cjs',
+              dev: 'node server.cjs',
+              'prepare:ios': 'node install.cjs',
+            },
+          }),
+        },
         'https://github.com/example/project.git',
-      ]);
-      await writeFile(join(source, 'original.txt'), 'original');
-      await writeFile(
-        join(source, 'package.json'),
-        JSON.stringify({
-          name: 'test-project',
-          scripts: {
-            test: 'node check.cjs',
-            dev: 'node server.cjs',
-            'prepare:ios': 'node install.cjs',
-          },
-        }),
       );
       await mkdir(join(source, 'nested'));
-      await git(['add', '.']);
-      await git(['commit', '-m', 'initial']);
-      const base = (await git(['rev-parse', 'HEAD'])).trim();
       await writeFile(join(source, 'original.txt'), 'user work');
-      const automation = join(directory, 'automation.mjs');
-      await copyFile(
-        new URL('./fixtures/automation.mjs', import.meta.url),
-        automation,
-      );
-      await chmod(automation, 0o700);
-      const bin = join(directory, 'bin');
-      await mkdir(bin);
-      await symlink(automation, join(bin, 'agent-browser'));
-      await symlink(automation, join(bin, 'agent-device'));
-      const port = await availablePort();
-      const resultPath = join(directory, 'brief.json');
-      await writeFile(resultPath, JSON.stringify(brief));
-      const configPath = join(directory, 'factory.json');
-      await writeFile(
-        configPath,
-        JSON.stringify({
-          model: { api, baseUrl: `http://127.0.0.1:${port}/v1` },
-          router: {
-            command: process.execPath,
-            args: [
-              fileURLToPath(new URL('./fixtures/router.mjs', import.meta.url)),
-              String(port),
-              resultPath,
-              mode,
-            ],
-          },
-        }),
-      );
+      const bin = await installQaAutomation(directory);
+      const plan = structuredClone(uiProjectPlan);
+      if (mode === 'delivery-check-repair')
+        plan.checks[0]!.args = [
+          '-e',
+          "if (require('node:fs').readFileSync('feature.txt', 'utf8') !== 'implemented repaired') { console.error('Expected repaired feature.'); process.exit(1); }",
+        ];
       await writeFile(
         join(directory, 'project-plan.json'),
-        JSON.stringify({
-          allowedPaths: deliveryConfig.allowedPaths,
-          allowNetwork: true,
-          checks: [
-            {
-              id: 'test',
-              command: process.execPath,
-              args: [
-                '-e',
-                "if (!require('node:fs').readFileSync('feature.txt', 'utf8').startsWith('implemented')) process.exit(1)",
-              ],
-            },
-          ],
-          targets: [
-            {
-              id: 'web',
-              kind: 'web',
-              url: 'http://localhost:3000',
-              start: {
-                command: process.execPath,
-                args: ['-e', 'setInterval(() => {}, 1000)'],
-              },
-            },
-            {
-              id: 'ios',
-              kind: 'mobile',
-              platform: 'ios',
-              app: 'com.example.app',
-              prepare: {
-                command: process.execPath,
-                args: ['-e', 'process.exit(0)'],
-              },
-            },
-          ],
-        }),
+        JSON.stringify(plan),
       );
-      child = spawn(
-        process.execPath,
-        [
-          fileURLToPath(new URL('../dist/cli/index.js', import.meta.url)),
-          'start',
-          '--config',
-          configPath,
-          '--issue',
-          'Export filtered issues',
-        ],
-        {
-          cwd: join(source, 'nested'),
-          env: {
-            ...process.env,
-            PATH: `${bin}:${process.env.PATH ?? ''}`,
-            DARKFACTORY_API_KEY: 'test-key',
-            MASTRA_AUTO_REFRESH_PROVIDERS: 'false',
-            NO_COLOR: '1',
-          },
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 20_000,
-        },
-      );
-      const exit = once(child, 'close');
-      let stdout = '';
-      let stderr = '';
-      child.stdout!.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
+      run = await startCompiledFactory({
+        directory,
+        source,
+        cwd: join(source, 'nested'),
+        api,
+        mode,
+        issue: 'Export filtered issues',
+        path: `${bin}:${process.env.PATH ?? ''}`,
+        timeoutMs: 20_000,
       });
-      child.stderr!.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-      child.stdin!.end('CSV\nImplement\nKeep local\n');
-      expect(await exit, stderr).toEqual([0, null]);
-      const result = deliveryResultSchema.parse(JSON.parse(stdout));
+      run.child.stdin.end('CSV\nImplement\nKeep local\n');
+      expect(await run.exit, run.stderr()).toEqual([0, null]);
+      const result = deliveryResultSchema.parse(JSON.parse(run.stdout()));
       expect(result.status).toBe('ready');
       expect(result.rounds).toBe(rounds);
       expect(result.pullRequestUrl).toBeNull();
+      const contexts = (
+        await readFile(join(directory, 'agent-contexts.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              role: string;
+              payload?: Record<string, unknown>;
+            },
+        );
+      const expectedFields: Record<string, string[]> = {
+        inspection: ['task'],
+        implementation: ['task', 'allowedPaths', 'checks', 'repair'],
+        qa: ['acceptanceCriteria', 'constraints', 'targets', 'evidence'],
+        review: [
+          'task',
+          'allowedPaths',
+          'patch',
+          'evidence',
+          'acceptanceResults',
+          'previousFindings',
+        ],
+        summary: [
+          'issue',
+          'implementation',
+          'checks',
+          'qa',
+          'review',
+          'findings',
+        ],
+      };
+      for (const [role, fields] of Object.entries(expectedFields)) {
+        const requests = contexts.filter((context) => context.role === role);
+        expect(requests.length, `Missing ${role} request`).toBeGreaterThan(0);
+        for (const request of requests)
+          expect(Object.keys(request.payload ?? {}).sort()).toEqual(
+            [...fields].sort(),
+          );
+      }
+      const implementations = contexts.filter(
+        (context) => context.role === 'implementation',
+      );
+      expect(implementations[0]!.payload?.repair).toBeNull();
+      if (rounds > 1)
+        expect(implementations[1]!.payload?.repair).toMatchObject({
+          findings: [
+            expect.objectContaining({
+              source:
+                mode === 'delivery-qa-repair'
+                  ? 'qa'
+                  : mode === 'delivery-check-repair'
+                    ? 'checks'
+                    : 'review',
+            }),
+          ],
+        });
+      if (mode === 'delivery-check-repair') {
+        const repair = implementations[1]!.payload?.repair as {
+          checkLogs: { checkId: string; exitCode: number; excerpt: string }[];
+        };
+        expect(repair.checkLogs).toHaveLength(1);
+        expect(repair.checkLogs[0]).toMatchObject({
+          checkId: 'test',
+          exitCode: 1,
+        });
+        expect(repair.checkLogs[0]?.excerpt).toContain(
+          'Expected repaired feature.',
+        );
+      }
       const input = JSON.parse(
         await readFile(join(result.runDirectory, 'input.json'), 'utf8'),
       ) as {
@@ -229,23 +179,23 @@ test.each([
       expect(
         evidenceFiles.filter((name) => name.endsWith('.png')),
       ).toHaveLength(2);
+      const persisted = await readFile(
+        join(result.runDirectory, 'state.json'),
+        'utf8',
+      );
+      expect(persisted).toContain('Independently inspected feature.txt');
       expect(
-        await readFile(join(result.runDirectory, 'state.json'), 'utf8'),
-      ).toContain('Independently inspected feature.txt');
+        (JSON.parse(persisted) as { history: unknown[] }).history,
+      ).toHaveLength(rounds);
       await expect(
         readFile(join(result.runDirectory, 'publication.json')),
       ).rejects.toThrow();
-      expect(stdout).not.toContain('test-key');
-      expect(stderr).not.toContain('test-key');
-      await expect(
-        fetch(`http://127.0.0.1:${port}/v1/models`),
-      ).rejects.toThrow();
+      expect(run.stdout()).not.toContain('test-key');
+      expect(run.stderr()).not.toContain('test-key');
+      await run.assertStopped();
     } finally {
-      if (child && child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM');
-        await once(child, 'close');
-      }
-      await rm(directory, { recursive: true, force: true });
+      if (run) await run.clean();
+      else await rm(directory, { recursive: true, force: true });
     }
   },
   25_000,

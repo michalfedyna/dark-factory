@@ -3,14 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { factoryConfigSchema } from '../src/config/schema.js';
-import { createDeliveryRuntime } from '../src/factory/delivery-runtime.js';
+import { createDeliveryRuntime } from '../src/delivery/runtime.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import {
   createRunRepository,
   readBase,
 } from '../src/integrations/git/repository.js';
 import { brief } from './fixtures/brief.js';
-import { deliveryConfig } from './fixtures/delivery.js';
+import { projectPlan } from './fixtures/delivery.js';
 
 const directories: string[] = [];
 const signal = new AbortController().signal;
@@ -146,7 +146,7 @@ test.each(['Stop', 'yes', ''])(
     const runtime = createDeliveryRuntime({
       inspect: () =>
         Promise.resolve({
-          ...deliveryConfig,
+          ...projectPlan,
           repository: source,
           baseRevision: base,
         }),

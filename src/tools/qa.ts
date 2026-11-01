@@ -5,10 +5,10 @@ import type { QaToolOptions } from './qa-command.js';
 /** Assemble only the integrations required by the configured targets. */
 export function createQaTools(options: QaToolOptions) {
   return {
-    ...(options.config.targets.some((target) => target.kind === 'web')
+    ...(options.project.targets.some((target) => target.kind === 'web')
       ? { agent_browser: createAgentBrowserTool(options) }
       : {}),
-    ...(options.config.targets.some((target) => target.kind === 'mobile')
+    ...(options.project.targets.some((target) => target.kind === 'mobile')
       ? { agent_device: createAgentDeviceTool(options) }
       : {}),
   };

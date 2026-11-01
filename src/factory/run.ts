@@ -1,10 +1,8 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { issueInputSchema, type Ask } from '../contracts/interaction.js';
 import type { Observe } from '../contracts/progress.js';
-import type {
-  createDefaultWorkflow,
-  DeliveryOperations,
-} from '../workflows/default.js';
+import type { createDefaultWorkflow } from '../workflows/default.js';
+import type { DeliveryOperations } from '../delivery/operations.js';
 
 const explorationError =
   'Exploration failed or returned an invalid brief. Check router authentication/model access and try again.';

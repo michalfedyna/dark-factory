@@ -30,6 +30,19 @@ DarkFactory is an autonomous software factory. It uses AI agents to turn softwar
 - Keep the CLI, configuration, and factory logic separate.
 - Prefer simple solutions over complex abstractions.
 
+## Readability
+
+- Keep orchestration, resource setup, policy checks, persistence, and rendering separate. Extract cohesive responsibilities, not arbitrary chunks or tiny forwarding files.
+- Make workflow definitions read as a sequence of named steps. Put detailed step behavior and pure gate decisions in focused modules.
+- Make dependencies and initialization order explicit through typed inputs and run/round contexts. Avoid callbacks that rely on uninitialized shared variables or undocumented call order.
+- Keep live workspaces, sandboxes, and processes separate from serializable workflow state. Give resources a clear owner and make cleanup safe after partial initialization.
+- Organize folders by clear responsibility and feature ownership. Keep external adapters in `integrations/`; keep domain policy outside it. Avoid catch-all `runtime`, `shared`, or `utils` modules.
+- Name values by their actual role, such as `projectSandbox` or `reviewWorkspace`. Define role-specific agent context types; reserve `unknown` for genuinely untrusted boundaries.
+- Use a consistent state-update style. Assert stage preconditions explicitly instead of relying on scattered non-null assertions and implicit history invariants.
+- Format prompts into readable paragraphs or lists. Build long rendered output from named sections instead of dense templates with inline logic.
+- Extract reusable test setup so scenarios and assertions remain visible. Do not identify agent roles or test scenarios by matching incidental prompt wording.
+- Keep developer navigation and folder maps current. Clearly distinguish implemented behavior from future design documents.
+
 ## Running the Factory
 
 - Start the factory through a CLI and a configuration file.

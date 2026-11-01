@@ -5,6 +5,14 @@ implementation, web/native QA, independent review, and an approved draft GitHub 
 
 The CLI is the only interface. There is no web app or local UI server.
 
+## Navigation
+
+- [Setup](#setup), [run](#run), and [configuration](#configuration)
+- [Delivery setup, evidence, and limits](docs/delivery.md) — current behavior
+- [Architecture and code ownership](docs/architecture.md) — current implementation
+- [Issue brief contract](docs/issue-brief.md) — validated exploration output
+- [Target workflow design](docs/Workflow.md) — future design, not an implemented feature list
+
 ## Requirements
 
 - Node.js 22.18+ on 22.x, 24.11+ on 24.x, or 26+; npm
@@ -161,6 +169,27 @@ never stops a service it did not start. Unexpected proxy exits cancel active mod
 work and pending input. Proxy logs are not mixed into JSON; run the configured
 proxy command directly for its detailed diagnostics.
 
+Responses requests always use `store: false` for compatibility with stateless
+proxies, including CLIProxyAPI with Codex OAuth. All agents replay conversation and
+tool content instead of server-side item references. Encrypted reasoning is
+requested and replayed when available; reasoning without encrypted content is
+omitted by the SDK. Do not enable `store: true` to work around missing-item errors.
+No proxy configuration change is needed.
+
+### Agent context
+
+Agents receive role-specific inputs, not the full workflow state or round history.
+Implementation gets the approved task, allowed paths, check commands, and only the
+latest repair findings, failed criterion notes, and failed check-log tails.
+QA gets acceptance criteria, constraints, target addresses, and current evidence
+references—not implementation claims, setup commands, or automatic log dumps.
+Review gets the task, patch, allowed paths, current acceptance/evidence references,
+and the last relevant reviewer feedback. The PR summary gets only final outcomes.
+
+The workflow still retains complete history for gates and artifacts. Agents can
+read needed source and evidence through their existing tools; context selection
+does not restrict those tool permissions. See [agent context](docs/architecture.md#agent-context).
+
 ### Background observer
 
 The observer is a separate, tool-free Mastra agent. It turns workflow stages,
@@ -191,8 +220,13 @@ Those solve agent context management rather than live user-facing progress.
 
 ## Output and boundaries
 
-The versioned Zod schema is in [`src/contracts/issue.ts`](src/contracts/issue.ts).
-It defines the problem, outcome, users, scope, prioritized requirements,
+Stdout is one validated delivery result, defined in
+[`src/contracts/delivery.ts`](src/contracts/delivery.ts). It includes the status,
+tested revision, round count, artifact directory, summary, and optional draft PR URL.
+
+The intermediate issue brief is defined in
+[`src/contracts/issue.ts`](src/contracts/issue.ts). It describes the problem,
+outcome, users, scope, prioritized requirements,
 Given/When/Then acceptance criteria, constraints, assumptions, decisions, risks,
 open questions, and readiness. See [the output contract](docs/issue-brief.md).
 
@@ -224,18 +258,21 @@ runners capture revision-bound evidence. See
 config/                 Proxy template; local config is gitignored
 src/
   agents/               Mastra agents and their instructions
-  workflows/            Default end-to-end Mastra workflow and typed steps
-  tools/                Agent tools, starting with ask
+  workflows/            Native Mastra composition, step schemas, and request context
+  delivery/             Delivery operations, resources, policy, evidence, and finishing
+  tools/                Ask and constrained browser/device QA tools
   contracts/            Zod schemas and boundary types
   config/               Factory configuration validation/loading
-  integrations/router/  Proxy process lifecycle and readiness
-  factory/              Mastra registration, CLI run lifecycle, and run artifacts
+  integrations/         External Git, GitHub, and proxy adapters
+  factory/              Mastra registration, run lifecycle, and background observation
   cli/                  Commander commands, Clack prompts, line input, and signals
 test/                   Unit and offline integration tests
 docs/                   Architecture and output contract
 ```
 
-See [architecture](docs/architecture.md) for the flow and extension points.
+Start with [`src/workflows/default.ts`](src/workflows/default.ts) for the flow and
+[`src/delivery/runtime.ts`](src/delivery/runtime.ts) for delivery composition.
+The [architecture guide](docs/architecture.md) maps resource ownership and gates.
 
 ## Development
 
@@ -259,6 +296,11 @@ Tests need no upstream credentials. Integration tests start a child test endpoin
 run the actual Mastra agent/tool loop through both OpenAI protocols, answer through
 stdin, infer repository settings, validate final JSON and evidence, and verify
 cancellation/EOF cleanup.
+Shared repository/process setup lives in `test/fixtures/integration.ts`.
+The offline provider separates wire formatting (`provider-protocol.mjs`) from
+scenarios (`provider-scenario.mjs`); roles are identified by their input contracts,
+not prompt wording. Lifecycle and state regressions are tested separately from
+the compiled CLI scenarios.
 
 `npm pack` builds before packaging. Postinstall installs Lefthook when `.git` and
 Lefthook are present. **pre-commit** runs `npm run check`; **commit-msg** requires

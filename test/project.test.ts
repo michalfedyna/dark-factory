@@ -5,7 +5,7 @@ import { afterEach, expect, test } from 'vitest';
 import { projectPlanSchema } from '../src/contracts/project.js';
 import { hostCommand } from '../src/integrations/git/command.js';
 import { inspectRepository } from '../src/integrations/git/inspect.js';
-import { deliveryConfig } from './fixtures/delivery.js';
+import { projectPlan } from './fixtures/delivery.js';
 
 const directories: string[] = [];
 const signal = new AbortController().signal;
@@ -89,7 +89,7 @@ test('rejects a detached checkout instead of guessing its base branch', async ()
 
 test.each([
   { checks: [] },
-  { checks: [deliveryConfig.checks[0], deliveryConfig.checks[0]] },
+  { checks: [projectPlan.checks[0], projectPlan.checks[0]] },
   { allowedPaths: ['../outside'] },
   { allowedPaths: ['.git'] },
   {
@@ -103,7 +103,7 @@ test.each([
     expect(
       projectPlanSchema.safeParse({
         allowedPaths: ['feature.txt'],
-        checks: deliveryConfig.checks,
+        checks: projectPlan.checks,
         ...override,
       }).success,
     ).toBe(false);
