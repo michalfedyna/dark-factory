@@ -64,6 +64,18 @@ lives elsewhere. The config's location never selects the target repository.
 npm run dev -- start
 ```
 
+To work on another repository without installing or linking the CLI, run from
+that repository:
+
+```sh
+npm --prefix /path/to/DarkFactory run dev -- start --config /path/to/DarkFactory/factory.config.json
+```
+
+The factory uses the directory where you ran npm, not the `--prefix` directory.
+This also applies to `npm --prefix /path/to/DarkFactory start -- start` after a
+build. Relative `--config` paths are resolved from the directory where you launch
+the command; `.env` and router arguments remain relative to the config file.
+
 The CLI starts the proxy, prompts for an issue, and asks follow-up questions in
 the terminal. Choose a suggested answer or select **Other** to write your own.
 Questions without suggestions use a text prompt directly.

@@ -20,14 +20,16 @@ import {
 } from './fixtures/integration.js';
 
 test.each([
-  ['chat', 'delivery', 1],
-  ['responses', 'delivery', 1],
-  ['responses', 'delivery-qa-repair', 2],
-  ['responses', 'delivery-check-repair', 2],
-  ['chat', 'delivery-review-repair', 2],
+  ['chat', 'delivery', 1, undefined],
+  ['responses', 'delivery', 1, undefined],
+  ['responses', 'delivery-qa-repair', 2, undefined],
+  ['responses', 'delivery-check-repair', 2, undefined],
+  ['chat', 'delivery-review-repair', 2, undefined],
+  ['responses', 'delivery', 1, 'dev'],
+  ['responses', 'delivery', 1, 'start'],
 ] as const)(
-  'compiled default workflow: exploration through delivery with real workspaces and optional repair (%s, %s)',
-  async (api, mode, rounds) => {
+  'default workflow: exploration through delivery with real workspaces and optional repair (%s, %s, %s rounds, npm script %s)',
+  async (api, mode, rounds, npmScript) => {
     const directory = await mkdtemp(
       join(tmpdir(), 'darkfactory-delivery-e2e-'),
     );
@@ -67,6 +69,7 @@ test.each([
         cwd: join(source, 'nested'),
         api,
         mode,
+        ...(npmScript ? { npmScript } : {}),
         issue: 'Export filtered issues',
         path: `${bin}:${process.env.PATH ?? ''}`,
         timeoutMs: 20_000,

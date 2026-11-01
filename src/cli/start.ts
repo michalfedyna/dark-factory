@@ -1,5 +1,6 @@
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as prompts from '@clack/prompts';
 import { loadConfig } from '../config/load.js';
 import { issueInputSchema } from '../contracts/interaction.js';
@@ -15,7 +16,17 @@ export async function startCommand(options: {
     options.issue === undefined
       ? undefined
       : issueInputSchema.parse(options.issue);
-  const { config, directory } = await loadConfig(options.config);
+  // npm runs scripts from the package root, not the caller's directory.
+  const workingDirectory =
+    process.env.INIT_CWD &&
+    process.env.npm_package_json ===
+      fileURLToPath(new URL('../../package.json', import.meta.url)) &&
+    ['dev', 'start'].includes(process.env.npm_lifecycle_event ?? '')
+      ? process.env.INIT_CWD
+      : process.cwd();
+  const { config, directory } = await loadConfig(
+    resolve(workingDirectory, options.config),
+  );
   try {
     loadEnvFile(resolve(directory, '.env'));
   } catch (error) {
@@ -48,7 +59,13 @@ export async function startCommand(options: {
   let factory: Awaited<ReturnType<typeof startFactory>> | undefined;
   try {
     progress?.start('Starting router');
-    factory = await startFactory(config, directory, apiKey, controller.signal);
+    factory = await startFactory(
+      config,
+      directory,
+      apiKey,
+      controller.signal,
+      workingDirectory,
+    );
     progress?.clear();
     const issue = suppliedIssue ?? (await terminal.issue(factory.signal));
     let stage = 'Exploring';

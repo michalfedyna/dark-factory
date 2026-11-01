@@ -37,7 +37,10 @@ CLIProxyAPI remains the model transport; it is not a user interface.
 
 1. `dark start` validates transport config and loads the adjacent `.env`. An optional
    `--issue` is validated before startup; otherwise the terminal prompts for it.
-   Inspect Git metadata from the CLI's working directory, not the config directory.
+   Inspect Git metadata from the CLI's launch directory, not the config directory.
+   For the factory's npm `dev`/`start` scripts, use npm's `INIT_CWD` to preserve
+   that directory despite npm changing to its package root. Relative config paths
+   use the same launch directory; direct CLI calls use the process working directory.
    Resolve the Git root, current branch, pinned commit, and unambiguous GitHub remote.
 2. Start the managed proxy without a shell (or connect in unmanaged mode). Wait
    for `/v1/models` to expose the configured model, retrying incomplete catalogs

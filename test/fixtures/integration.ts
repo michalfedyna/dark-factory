@@ -82,6 +82,7 @@ export async function startCompiledFactory(options: {
   issue?: string;
   mode?: string;
   observerEnabled?: boolean;
+  npmScript?: 'dev' | 'start';
   path?: string;
   timeoutMs?: number;
 }) {
@@ -110,28 +111,39 @@ export async function startCompiledFactory(options: {
       },
     }),
   );
-  const child = spawn(
-    process.execPath,
-    [
-      fileURLToPath(new URL('../../dist/cli/index.js', import.meta.url)),
-      'start',
-      '--config',
-      configPath,
-      ...(issue === undefined ? [] : ['--issue', issue]),
-    ],
-    {
-      cwd: options.cwd ?? source,
-      env: {
-        ...process.env,
-        ...(options.path ? { PATH: options.path } : {}),
-        DARKFACTORY_API_KEY: 'test-key',
-        MASTRA_AUTO_REFRESH_PROVIDERS: 'false',
-        NO_COLOR: '1',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: options.timeoutMs ?? 15_000,
+  const factoryArguments = [
+    'start',
+    '--config',
+    configPath,
+    ...(issue === undefined ? [] : ['--issue', issue]),
+  ];
+  const command = options.npmScript ? 'npm' : process.execPath;
+  const args = options.npmScript
+    ? [
+        '--silent',
+        '--prefix',
+        fileURLToPath(new URL('../../', import.meta.url)),
+        'run',
+        options.npmScript,
+        '--',
+        ...factoryArguments,
+      ]
+    : [
+        fileURLToPath(new URL('../../dist/cli/index.js', import.meta.url)),
+        ...factoryArguments,
+      ];
+  const child = spawn(command, args, {
+    cwd: options.cwd ?? source,
+    env: {
+      ...process.env,
+      ...(options.path ? { PATH: options.path } : {}),
+      DARKFACTORY_API_KEY: 'test-key',
+      MASTRA_AUTO_REFRESH_PROVIDERS: 'false',
+      NO_COLOR: '1',
     },
-  );
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: options.timeoutMs ?? 15_000,
+  });
   const exit = once(child, 'close');
   let stdout = '';
   let stderr = '';
